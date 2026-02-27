@@ -23,7 +23,8 @@ from xml.etree import ElementTree as ET
 
 import requests
 
-BASE_URL = "https://caoshae8e528d1yp90app.ecwcloud.com"
+# Prefer runtime-injected BASE_URL from generic executor, fallback to hardcoded
+BASE_URL = globals().get("BASE_URL") or "https://caoshae8e528d1yp90app.ecwcloud.com"
 DEFAULT_SESSION_DID = "297477"
 
 
