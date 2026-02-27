@@ -7,7 +7,7 @@ Actions: read, edit-demographics, read-combos, read-sliding-fee, calculate,
          set-responsible-party, edit-income
 
 Converted from action_handler.py for Lambda execution:
-  - httpx → requests
+  - httpx â†’ requests
   - run(auth_headers, input_data) entry point
   - session_did from auth_headers["X-Session-DID"] or fallback 297477
 """
@@ -28,7 +28,7 @@ BASE_URL = globals().get("BASE_URL") or "https://caoshae8e528d1yp90app.ecwcloud.
 DEFAULT_SESSION_DID = "297477"
 
 
-# ── XML Helpers ──────────────────────────────────────────────────────────────
+# â”€â”€ XML Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _escape_xml(value: str) -> str:
     if not value:
@@ -128,7 +128,7 @@ def _xml_to_dict(elem) -> dict:
     return result
 
 
-# ── Session ──────────────────────────────────────────────────────────────────
+# â”€â”€ Session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _build_session_from_headers(auth_headers: dict) -> dict:
     """Build session dict from Endgame auth_headers."""
@@ -177,7 +177,7 @@ def _post(client: requests.Session, session: dict, path: str,
     return client.post(url, data=data, headers=hdrs)
 
 
-# ── READ Operations ──────────────────────────────────────────────────────────
+# â”€â”€ READ Operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_patient_info(client: requests.Session, session: dict,
                      patient_id: str) -> dict:
@@ -288,7 +288,7 @@ def calculate_sliding_fee(client: requests.Session, session: dict,
     return parsed
 
 
-# ── WRITE: Demographics Tab 1 ───────────────────────────────────────────────
+# â”€â”€ WRITE: Demographics Tab 1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save_demographics_tab1(client: requests.Session, session: dict,
                            patient_id: str, fields: dict) -> dict:
@@ -348,7 +348,7 @@ def save_demographics_tab1(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# ── WRITE: Demographics Tab 2 ───────────────────────────────────────────────
+# â”€â”€ WRITE: Demographics Tab 2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save_demographics_tab2(client: requests.Session, session: dict,
                            patient_id: str, fields: dict) -> dict:
@@ -463,7 +463,7 @@ def save_demographics_tab2(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# ── WRITE: Sliding Fee Schedule (Income) ─────────────────────────────────────
+# â”€â”€ WRITE: Sliding Fee Schedule (Income) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def save_sliding_fee_schedule(client: requests.Session, session: dict,
                               patient_id: str, fields: dict,
@@ -589,7 +589,7 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# ── WRITE: Contacts ──────────────────────────────────────────────────────────
+# â”€â”€ WRITE: Contacts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _build_contact_xml(patient_id: str, contact: dict) -> tuple:
     e = []
@@ -691,7 +691,7 @@ def update_contact(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# ── WRITE: Responsible Party ─────────────────────────────────────────────────
+# â”€â”€ WRITE: Responsible Party â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def set_responsible_party(client: requests.Session, session: dict,
                           patient_id: str, gr_id: str,
@@ -716,7 +716,7 @@ def set_responsible_party(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# ── Convenience: Read-Modify-Write ───────────────────────────────────────────
+# â”€â”€ Convenience: Read-Modify-Write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def edit_demographics(client: requests.Session, session: dict,
                       patient_id: str, changes: dict) -> dict:
@@ -852,7 +852,7 @@ def edit_income(client: requests.Session, session: dict,
     return result
 
 
-# ── Endgame Entry Point ─────────────────────────────────────────────────────
+# â”€â”€ Endgame Entry Point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def run(auth_headers: dict, input_data: dict = None) -> dict:
     """Endgame integration entry point.

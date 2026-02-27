@@ -8,7 +8,7 @@ Actions: sliding-history, sliding-detail, other-income-reasons, find-members,
          scenario-1, scenario-2, scenario-5, scenario-6, scenario-7
 
 Converted from sfdp_handler.py for Lambda execution:
-  - httpx → requests
+  - httpx â†’ requests
   - All shared helpers from action_handler.py inlined
   - run(auth_headers, input_data) entry point
   - session_did from auth_headers["X-Session-DID"] or fallback 297477
@@ -30,7 +30,7 @@ BASE_URL = globals().get("BASE_URL") or "https://caoshae8e528d1yp90app.ecwcloud.
 DEFAULT_SESSION_DID = "297477"
 
 
-# ── XML Helpers (inlined from action_handler) ────────────────────────────────
+# â”€â”€ XML Helpers (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _escape_xml(value: str) -> str:
     if not value:
@@ -162,7 +162,7 @@ def _parse_soap_rows(text: str, row_tag: str) -> list:
     return result
 
 
-# ── Session (inlined from action_handler) ────────────────────────────────────
+# â”€â”€ Session (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _build_session_from_headers(auth_headers: dict) -> dict:
     cookie_str = auth_headers.get("Cookie", "")
@@ -210,7 +210,7 @@ def _post(client: requests.Session, session: dict, path: str,
     return client.post(url, data=data, headers=hdrs)
 
 
-# ── Shared reads (inlined from action_handler) ──────────────────────────────
+# â”€â”€ Shared reads (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_sliding_fee_schedule(client: requests.Session, session: dict,
                              patient_id: str) -> dict:
@@ -408,7 +408,7 @@ def edit_income(client: requests.Session, session: dict,
     return result
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _add_business_days(start_date, days: int):
     if isinstance(start_date, str):
@@ -431,7 +431,7 @@ def _parse_date(date_str: str) -> datetime:
     return datetime.strptime(date_str, "%m/%d/%Y")
 
 
-# ── Sliding Fee Read Functions ───────────────────────────────────────────────
+# â”€â”€ Sliding Fee Read Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_sliding_scale_history(client: requests.Session, session: dict,
                               patient_id: str) -> dict:
@@ -495,7 +495,7 @@ def find_sliding_members(client: requests.Session, session: dict,
     return rows
 
 
-# ── Insurance Read Functions ─────────────────────────────────────────────────
+# â”€â”€ Insurance Read Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_insurance_info(client: requests.Session, session: dict,
                        patient_id: str) -> dict:
@@ -534,7 +534,7 @@ def search_insurance_carriers(client: requests.Session, session: dict,
     return _parse_soap_rows(r.text, "insurance")
 
 
-# ── Insurance Write Functions ────────────────────────────────────────────────
+# â”€â”€ Insurance Write Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def delete_insurance(client: requests.Session, session: dict,
                      patient_id: str, pt_ins_id: str,
@@ -751,7 +751,7 @@ def update_insurance(client: requests.Session, session: dict,
         client, session, patient_id, insurance_data, pt_ins_id=pt_ins_id)
 
 
-# ── SFDP Scenario Orchestrators ─────────────────────────────────────────────
+# â”€â”€ SFDP Scenario Orchestrators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def scenario_1_poi_on_visit(client: requests.Session, session: dict,
                             patient_id: str, income_data: dict,
@@ -937,7 +937,7 @@ def scenario_7_returns_with_poi(client: requests.Session, session: dict,
     return results
 
 
-# ── Endgame Entry Point ─────────────────────────────────────────────────────
+# â”€â”€ Endgame Entry Point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def run(auth_headers: dict, input_data: dict = None) -> dict:
     """Endgame integration entry point.
