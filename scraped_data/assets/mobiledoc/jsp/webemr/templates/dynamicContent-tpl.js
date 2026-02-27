@@ -1,0 +1,1 @@
+angular.module('ecw.dir.dynamicContent',[]).directive('dynamic',function($compile){var directive={restrict:'A',replace:true,link:function(scope,ele,attrs){scope.$watch(attrs.dynamic,function(html){ele.html(html);$compile(ele.contents())(scope);if(attrs.callback){scope.$eval(attrs.callback)}})}};return directive});

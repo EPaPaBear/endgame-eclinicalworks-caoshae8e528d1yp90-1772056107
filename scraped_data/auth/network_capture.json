@@ -1,0 +1,68 @@
+[
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/newLogin.jsp",
+    "method": "GET",
+    "resource_type": "document",
+    "headers": {"Accept": "text/html"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/getRsaPublicKey",
+    "method": "GET",
+    "resource_type": "xhr",
+    "headers": {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/setAESKey?action=1043",
+    "method": "POST",
+    "resource_type": "xhr",
+    "headers": {"Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/verifyUname",
+    "method": "POST",
+    "resource_type": "xhr",
+    "headers": {"Content-Type": "application/x-www-form-urlencoded"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/getPwdPage",
+    "method": "GET",
+    "resource_type": "document",
+    "headers": {"Accept": "text/html"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/processLoginRequest",
+    "method": "POST",
+    "resource_type": "document",
+    "headers": {"Content-Type": "application/x-www-form-urlencoded"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/loginSuccess.jsp",
+    "method": "GET",
+    "resource_type": "document",
+    "headers": {"Accept": "text/html"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/OTPVerification.jsp",
+    "method": "GET",
+    "resource_type": "document",
+    "headers": {"Accept": "text/html"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/login/authenticate/checkSecureToken?userId=297477",
+    "method": "GET",
+    "resource_type": "xhr",
+    "headers": {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "isAjaxRequest": "true"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/webemr/index.jsp",
+    "method": "GET",
+    "resource_type": "document",
+    "headers": {"Accept": "text/html"}
+  },
+  {
+    "url": "https://caoshae8e528d1yp90app.ecwcloud.com/mobiledoc/jsp/websecurity/getEcwUniUnreadMessages",
+    "method": "GET",
+    "resource_type": "xhr",
+    "headers": {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest", "isAjaxRequest": "true", "X-CSRF-TOKEN": "574b4c81-1459-40e1-94b6-d5c005a1a43e"}
+  }
+]
