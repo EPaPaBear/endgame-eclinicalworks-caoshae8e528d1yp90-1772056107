@@ -8,7 +8,7 @@ Actions: sliding-history, sliding-detail, other-income-reasons, find-members,
          scenario-1, scenario-2, scenario-5, scenario-6, scenario-7
 
 Converted from sfdp_handler.py for Lambda execution:
-  - httpx â†’ requests
+  - httpx → requests
   - All shared helpers from action_handler.py inlined
   - run(auth_headers, input_data) entry point
   - session_did from auth_headers["X-Session-DID"] or fallback 297477
@@ -30,7 +30,164 @@ BASE_URL = globals().get("BASE_URL") or "https://caoshae8e528d1yp90app.ecwcloud.
 DEFAULT_SESSION_DID = "297477"
 
 
-# â”€â”€ XML Helpers (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Endgame Entry Point ─────────────────────────────────────────────────────
+
+def run(auth_headers: dict, input_data: dict = None) -> dict:
+    """Endgame integration entry point.
+
+    input_data:
+      action (str): One of the supported actions (see below).
+      patient_id (str): Required for most actions.
+      ... action-specific fields.
+
+    Actions:
+      sliding-history       - Read sliding scale history
+      sliding-detail        - Read detail for a specific assignment
+      other-income-reasons  - Load dropdown options for income reasons
+      find-members          - Find household members for sliding fee
+      get-insurance         - Read patient insurance info
+      search-carriers       - Search insurance carriers by name
+      delete-insurance      - Delete a patient insurance record
+      save-insurance-detail - Save insurance ordering + responsible party
+      add-insurance         - Add an insurance record
+      update-insurance      - Update an existing insurance record
+      scenario-1            - PENDING -> FINAL WITH POI
+      scenario-2            - PENDING -> PROVISIONAL (no POI)
+      scenario-5            - PROVISIONAL -> FINAL NO POI (10d expired)
+      scenario-6            - PROVISIONAL -> FINAL WITH POI (POI arrives)
+      scenario-7            - FINAL NO POI -> FINAL WITH POI (returns with POI)
+    """
+    input_data = input_data or {}
+    action = input_data.get("action")
+    patient_id = input_data.get("patient_id")
+
+    if not action:
+        return {"status_code": 400, "body": {"error": "action is required"}}
+
+    session = _build_session_from_headers(auth_headers)
+
+    with requests.Session() as client:
+        client.cookies.update(session["cookies"])
+
+        # -- Read actions --
+
+        if action == "sliding-history":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            return get_sliding_scale_history(client, session, patient_id)
+
+        elif action == "sliding-detail":
+            assignment_id = input_data.get("assignment_id")
+            if not assignment_id:
+                return {"status_code": 400,
+                        "body": {"error": "assignment_id required"}}
+            return get_sliding_scale_detail(client, session, assignment_id)
+
+        elif action == "other-income-reasons":
+            return {"reasons": load_other_income_reasons(client, session)}
+
+        elif action == "find-members":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            return {"members": find_sliding_members(
+                client, session, patient_id)}
+
+        elif action == "get-insurance":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            return get_insurance_info(client, session, patient_id)
+
+        elif action == "search-carriers":
+            name = input_data.get("search", "")
+            ins_type = input_data.get("ins_type", "")
+            if not name:
+                return {"status_code": 400, "body": {"error": "search required"}}
+            return {"carriers": search_insurance_carriers(
+                client, session, name, ins_type)}
+
+        # -- Write actions --
+
+        elif action == "delete-insurance":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            pt_ins_id = input_data.get("pt_ins_id")
+            if not pt_ins_id:
+                return {"status_code": 400, "body": {"error": "pt_ins_id required"}}
+            skip_claim = input_data.get("skip_claim_check", False)
+            return delete_insurance(
+                client, session, patient_id, pt_ins_id, skip_claim)
+
+        elif action == "save-insurance-detail":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            insurances = input_data.get("insurances", [])
+            return save_insurance_detail(
+                client, session, patient_id, insurances,
+                gr_id=input_data.get("gr_id", patient_id),
+                gr_rel=input_data.get("gr_rel", "0"),
+                is_gr_pt=input_data.get("is_gr_pt", "1"))
+
+        elif action == "add-insurance":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            insurance_data = input_data.get("insurance_data", {})
+            if not insurance_data.get("InsuranceId"):
+                return {"status_code": 400,
+                        "body": {"error": "insurance_data.InsuranceId required"}}
+            return add_insurance(client, session, patient_id, insurance_data)
+
+        elif action == "update-insurance":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            pt_ins_id = input_data.get("pt_ins_id")
+            insurance_data = input_data.get("insurance_data", {})
+            if not pt_ins_id:
+                return {"status_code": 400, "body": {"error": "pt_ins_id required"}}
+            return update_insurance(
+                client, session, patient_id, pt_ins_id, insurance_data)
+
+        # -- Scenario orchestrators --
+
+        elif action.startswith("scenario-"):
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            scenario_num = action.split("-", 1)[1]
+            income_data = input_data.get("income_data", {})
+            old_pt_ins_id = input_data.get("old_pt_ins_id")
+            new_ins_data = input_data.get("new_ins_data")
+
+            scenarios = {
+                "1": scenario_1_poi_on_visit,
+                "2": scenario_2_no_poi,
+                "5": scenario_5_no_poi_after_10d,
+                "6": scenario_6_poi_arrives,
+                "7": scenario_7_returns_with_poi,
+            }
+            fn = scenarios.get(scenario_num)
+            if not fn:
+                return {"status_code": 400,
+                        "body": {"error": f"Unknown scenario: {scenario_num}",
+                                 "valid": ["1", "2", "5", "6", "7"]}}
+            return fn(client, session, patient_id,
+                      income_data, old_pt_ins_id, new_ins_data)
+
+        else:
+            return {"status_code": 400,
+                    "body": {"error": f"Unknown action: {action}",
+                             "valid_actions": [
+                                 "sliding-history", "sliding-detail",
+                                 "other-income-reasons", "find-members",
+                                 "get-insurance", "search-carriers",
+                                 "delete-insurance", "save-insurance-detail",
+                                 "add-insurance", "update-insurance",
+                                 "scenario-1", "scenario-2", "scenario-5",
+                                 "scenario-6", "scenario-7",
+                             ]}}
+
+
+# === PRIVATE ===
+
+# ── XML Helpers (inlined from action_handler) ────────────────────────────────
 
 def _escape_xml(value: str) -> str:
     if not value:
@@ -162,7 +319,7 @@ def _parse_soap_rows(text: str, row_tag: str) -> list:
     return result
 
 
-# â”€â”€ Session (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Session (inlined from action_handler) ────────────────────────────────────
 
 def _build_session_from_headers(auth_headers: dict) -> dict:
     cookie_str = auth_headers.get("Cookie", "")
@@ -210,7 +367,7 @@ def _post(client: requests.Session, session: dict, path: str,
     return client.post(url, data=data, headers=hdrs)
 
 
-# â”€â”€ Shared reads (inlined from action_handler) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Shared reads (inlined from action_handler) ──────────────────────────────
 
 def get_sliding_fee_schedule(client: requests.Session, session: dict,
                              patient_id: str) -> dict:
@@ -408,7 +565,7 @@ def edit_income(client: requests.Session, session: dict,
     return result
 
 
-# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _add_business_days(start_date, days: int):
     if isinstance(start_date, str):
@@ -431,7 +588,7 @@ def _parse_date(date_str: str) -> datetime:
     return datetime.strptime(date_str, "%m/%d/%Y")
 
 
-# â”€â”€ Sliding Fee Read Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Sliding Fee Read Functions ───────────────────────────────────────────────
 
 def get_sliding_scale_history(client: requests.Session, session: dict,
                               patient_id: str) -> dict:
@@ -495,7 +652,7 @@ def find_sliding_members(client: requests.Session, session: dict,
     return rows
 
 
-# â”€â”€ Insurance Read Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Insurance Read Functions ─────────────────────────────────────────────────
 
 def get_insurance_info(client: requests.Session, session: dict,
                        patient_id: str) -> dict:
@@ -534,7 +691,7 @@ def search_insurance_carriers(client: requests.Session, session: dict,
     return _parse_soap_rows(r.text, "insurance")
 
 
-# â”€â”€ Insurance Write Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Insurance Write Functions ────────────────────────────────────────────────
 
 def delete_insurance(client: requests.Session, session: dict,
                      patient_id: str, pt_ins_id: str,
@@ -751,7 +908,7 @@ def update_insurance(client: requests.Session, session: dict,
         client, session, patient_id, insurance_data, pt_ins_id=pt_ins_id)
 
 
-# â”€â”€ SFDP Scenario Orchestrators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── SFDP Scenario Orchestrators ─────────────────────────────────────────────
 
 def scenario_1_poi_on_visit(client: requests.Session, session: dict,
                             patient_id: str, income_data: dict,
@@ -935,158 +1092,3 @@ def scenario_7_returns_with_poi(client: requests.Session, session: dict,
             client, session, patient_id, new_ins_data)
 
     return results
-
-
-# â”€â”€ Endgame Entry Point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def run(auth_headers: dict, input_data: dict = None) -> dict:
-    """Endgame integration entry point.
-
-    input_data:
-      action (str): One of the supported actions (see below).
-      patient_id (str): Required for most actions.
-      ... action-specific fields.
-
-    Actions:
-      sliding-history       - Read sliding scale history
-      sliding-detail        - Read detail for a specific assignment
-      other-income-reasons  - Load dropdown options for income reasons
-      find-members          - Find household members for sliding fee
-      get-insurance         - Read patient insurance info
-      search-carriers       - Search insurance carriers by name
-      delete-insurance      - Delete a patient insurance record
-      save-insurance-detail - Save insurance ordering + responsible party
-      add-insurance         - Add an insurance record
-      update-insurance      - Update an existing insurance record
-      scenario-1            - PENDING -> FINAL WITH POI
-      scenario-2            - PENDING -> PROVISIONAL (no POI)
-      scenario-5            - PROVISIONAL -> FINAL NO POI (10d expired)
-      scenario-6            - PROVISIONAL -> FINAL WITH POI (POI arrives)
-      scenario-7            - FINAL NO POI -> FINAL WITH POI (returns with POI)
-    """
-    input_data = input_data or {}
-    action = input_data.get("action")
-    patient_id = input_data.get("patient_id")
-
-    if not action:
-        return {"status_code": 400, "body": {"error": "action is required"}}
-
-    session = _build_session_from_headers(auth_headers)
-
-    with requests.Session() as client:
-        client.cookies.update(session["cookies"])
-
-        # -- Read actions --
-
-        if action == "sliding-history":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            return get_sliding_scale_history(client, session, patient_id)
-
-        elif action == "sliding-detail":
-            assignment_id = input_data.get("assignment_id")
-            if not assignment_id:
-                return {"status_code": 400,
-                        "body": {"error": "assignment_id required"}}
-            return get_sliding_scale_detail(client, session, assignment_id)
-
-        elif action == "other-income-reasons":
-            return {"reasons": load_other_income_reasons(client, session)}
-
-        elif action == "find-members":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            return {"members": find_sliding_members(
-                client, session, patient_id)}
-
-        elif action == "get-insurance":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            return get_insurance_info(client, session, patient_id)
-
-        elif action == "search-carriers":
-            name = input_data.get("search", "")
-            ins_type = input_data.get("ins_type", "")
-            if not name:
-                return {"status_code": 400, "body": {"error": "search required"}}
-            return {"carriers": search_insurance_carriers(
-                client, session, name, ins_type)}
-
-        # -- Write actions --
-
-        elif action == "delete-insurance":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            pt_ins_id = input_data.get("pt_ins_id")
-            if not pt_ins_id:
-                return {"status_code": 400, "body": {"error": "pt_ins_id required"}}
-            skip_claim = input_data.get("skip_claim_check", False)
-            return delete_insurance(
-                client, session, patient_id, pt_ins_id, skip_claim)
-
-        elif action == "save-insurance-detail":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            insurances = input_data.get("insurances", [])
-            return save_insurance_detail(
-                client, session, patient_id, insurances,
-                gr_id=input_data.get("gr_id", patient_id),
-                gr_rel=input_data.get("gr_rel", "0"),
-                is_gr_pt=input_data.get("is_gr_pt", "1"))
-
-        elif action == "add-insurance":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            insurance_data = input_data.get("insurance_data", {})
-            if not insurance_data.get("InsuranceId"):
-                return {"status_code": 400,
-                        "body": {"error": "insurance_data.InsuranceId required"}}
-            return add_insurance(client, session, patient_id, insurance_data)
-
-        elif action == "update-insurance":
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            pt_ins_id = input_data.get("pt_ins_id")
-            insurance_data = input_data.get("insurance_data", {})
-            if not pt_ins_id:
-                return {"status_code": 400, "body": {"error": "pt_ins_id required"}}
-            return update_insurance(
-                client, session, patient_id, pt_ins_id, insurance_data)
-
-        # -- Scenario orchestrators --
-
-        elif action.startswith("scenario-"):
-            if not patient_id:
-                return {"status_code": 400, "body": {"error": "patient_id required"}}
-            scenario_num = action.split("-", 1)[1]
-            income_data = input_data.get("income_data", {})
-            old_pt_ins_id = input_data.get("old_pt_ins_id")
-            new_ins_data = input_data.get("new_ins_data")
-
-            scenarios = {
-                "1": scenario_1_poi_on_visit,
-                "2": scenario_2_no_poi,
-                "5": scenario_5_no_poi_after_10d,
-                "6": scenario_6_poi_arrives,
-                "7": scenario_7_returns_with_poi,
-            }
-            fn = scenarios.get(scenario_num)
-            if not fn:
-                return {"status_code": 400,
-                        "body": {"error": f"Unknown scenario: {scenario_num}",
-                                 "valid": ["1", "2", "5", "6", "7"]}}
-            return fn(client, session, patient_id,
-                      income_data, old_pt_ins_id, new_ins_data)
-
-        else:
-            return {"status_code": 400,
-                    "body": {"error": f"Unknown action: {action}",
-                             "valid_actions": [
-                                 "sliding-history", "sliding-detail",
-                                 "other-income-reasons", "find-members",
-                                 "get-insurance", "search-carriers",
-                                 "delete-insurance", "save-insurance-detail",
-                                 "add-insurance", "update-insurance",
-                                 "scenario-1", "scenario-2", "scenario-5",
-                                 "scenario-6", "scenario-7",
-                             ]}}

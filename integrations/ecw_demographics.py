@@ -7,7 +7,7 @@ Actions: read, edit-demographics, read-combos, read-sliding-fee, calculate,
          set-responsible-party, edit-income
 
 Converted from action_handler.py for Lambda execution:
-  - httpx â†’ requests
+  - httpx → requests
   - run(auth_headers, input_data) entry point
   - session_did from auth_headers["X-Session-DID"] or fallback 297477
 """
@@ -28,7 +28,126 @@ BASE_URL = globals().get("BASE_URL") or "https://caoshae8e528d1yp90app.ecwcloud.
 DEFAULT_SESSION_DID = "297477"
 
 
-# â”€â”€ XML Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Endgame Entry Point ─────────────────────────────────────────────────────
+
+def run(auth_headers: dict, input_data: dict = None) -> dict:
+    """Endgame integration entry point.
+
+    input_data:
+      action (str): One of the supported actions (see below).
+      patient_id (str): Required for all actions.
+      ... action-specific fields (see each action's docstring).
+
+    Actions:
+      read                  - Read full patient record
+      edit-demographics     - Read-modify-write demographics (changes dict)
+      read-combos           - Read dropdown/combo values
+      read-sliding-fee      - Read current sliding fee assignment
+      calculate             - Calculate sliding fee from income/dependants/unit
+      search-provider       - Search providers by name
+      get-contacts          - Read patient contacts
+      add-contact           - Create a new contact
+      update-contact        - Update an existing contact
+      set-responsible-party - Set guarantor/responsible party
+      edit-income           - Calculate + assign sliding fee schedule
+    """
+    input_data = input_data or {}
+    action = input_data.get("action", "read")
+    patient_id = input_data.get("patient_id")
+
+    if not patient_id:
+        return {"status_code": 400, "body": {"error": "patient_id is required"}}
+
+    session = _build_session_from_headers(auth_headers)
+
+    with requests.Session() as client:
+        client.cookies.update(session["cookies"])
+
+        if action == "read":
+            return get_patient_info(client, session, patient_id)
+
+        elif action == "edit-demographics":
+            changes = input_data.get("changes", {})
+            if not changes:
+                return {"status_code": 400,
+                        "body": {"error": "changes dict is required"}}
+            return edit_demographics(client, session, patient_id, changes)
+
+        elif action == "read-combos":
+            return get_demographics_combos(client, session, patient_id)
+
+        elif action == "read-sliding-fee":
+            return get_sliding_fee_schedule(client, session, patient_id)
+
+        elif action == "calculate":
+            return calculate_sliding_fee(
+                client, session,
+                input_data.get("Income", "0"),
+                input_data.get("Dependants", "1"),
+                input_data.get("Unit", "Monthly"),
+            )
+
+        elif action == "search-provider":
+            search = input_data.get("search", "")
+            lastname, firstname = "", ""
+            if "," in search:
+                parts = search.split(",", 1)
+                lastname, firstname = parts[0].strip(), parts[1].strip()
+            else:
+                lastname = search.strip()
+            return {"providers": search_providers(
+                client, session, lastname, firstname)}
+
+        elif action == "get-contacts":
+            emergency_only = input_data.get("emergency_only", False)
+            return {"contacts": get_contacts(
+                client, session, patient_id, emergency_only)}
+
+        elif action == "add-contact":
+            contact = input_data.get("contact", {})
+            if not contact:
+                return {"status_code": 400,
+                        "body": {"error": "contact dict is required"}}
+            return add_contact(client, session, patient_id, contact)
+
+        elif action == "update-contact":
+            contact_id = input_data.get("contact_id")
+            contact = input_data.get("contact", {})
+            if not contact_id or not contact:
+                return {"status_code": 400,
+                        "body": {"error": "contact_id and contact are required"}}
+            return update_contact(
+                client, session, patient_id, contact_id, contact)
+
+        elif action == "set-responsible-party":
+            gr_id = input_data.get("gr_id", patient_id)
+            gr_rel = input_data.get("gr_rel", "1")
+            is_gr_pt = input_data.get("is_gr_pt", "1")
+            return set_responsible_party(
+                client, session, patient_id, gr_id, gr_rel, is_gr_pt)
+
+        elif action == "edit-income":
+            income_data = input_data.get("income_data", {})
+            if not income_data:
+                return {"status_code": 400,
+                        "body": {"error": "income_data dict is required"}}
+            return edit_income(client, session, patient_id, income_data)
+
+        else:
+            return {"status_code": 400,
+                    "body": {"error": f"Unknown action: {action}",
+                             "valid_actions": [
+                                 "read", "edit-demographics", "read-combos",
+                                 "read-sliding-fee", "calculate",
+                                 "search-provider", "get-contacts",
+                                 "add-contact", "update-contact",
+                                 "set-responsible-party", "edit-income",
+                             ]}}
+
+
+# === PRIVATE ===
+
+# ── XML Helpers ──────────────────────────────────────────────────────────────
 
 def _escape_xml(value: str) -> str:
     if not value:
@@ -128,7 +247,7 @@ def _xml_to_dict(elem) -> dict:
     return result
 
 
-# â”€â”€ Session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Session ──────────────────────────────────────────────────────────────────
 
 def _build_session_from_headers(auth_headers: dict) -> dict:
     """Build session dict from Endgame auth_headers."""
@@ -177,7 +296,7 @@ def _post(client: requests.Session, session: dict, path: str,
     return client.post(url, data=data, headers=hdrs)
 
 
-# â”€â”€ READ Operations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── READ Operations ──────────────────────────────────────────────────────────
 
 def get_patient_info(client: requests.Session, session: dict,
                      patient_id: str) -> dict:
@@ -288,7 +407,7 @@ def calculate_sliding_fee(client: requests.Session, session: dict,
     return parsed
 
 
-# â”€â”€ WRITE: Demographics Tab 1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WRITE: Demographics Tab 1 ───────────────────────────────────────────────
 
 def save_demographics_tab1(client: requests.Session, session: dict,
                            patient_id: str, fields: dict) -> dict:
@@ -348,7 +467,7 @@ def save_demographics_tab1(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# â”€â”€ WRITE: Demographics Tab 2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WRITE: Demographics Tab 2 ───────────────────────────────────────────────
 
 def save_demographics_tab2(client: requests.Session, session: dict,
                            patient_id: str, fields: dict) -> dict:
@@ -463,7 +582,7 @@ def save_demographics_tab2(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# â”€â”€ WRITE: Sliding Fee Schedule (Income) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WRITE: Sliding Fee Schedule (Income) ─────────────────────────────────────
 
 def save_sliding_fee_schedule(client: requests.Session, session: dict,
                               patient_id: str, fields: dict,
@@ -589,7 +708,7 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# â”€â”€ WRITE: Contacts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WRITE: Contacts ──────────────────────────────────────────────────────────
 
 def _build_contact_xml(patient_id: str, contact: dict) -> tuple:
     e = []
@@ -691,7 +810,7 @@ def update_contact(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# â”€â”€ WRITE: Responsible Party â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── WRITE: Responsible Party ─────────────────────────────────────────────────
 
 def set_responsible_party(client: requests.Session, session: dict,
                           patient_id: str, gr_id: str,
@@ -716,7 +835,7 @@ def set_responsible_party(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
-# â”€â”€ Convenience: Read-Modify-Write â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Convenience: Read-Modify-Write ───────────────────────────────────────────
 
 def edit_demographics(client: requests.Session, session: dict,
                       patient_id: str, changes: dict) -> dict:
@@ -850,120 +969,3 @@ def edit_income(client: requests.Session, session: dict,
         "FeeSchId": calc.get("FeeSchId", ""),
     }
     return result
-
-
-# â”€â”€ Endgame Entry Point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def run(auth_headers: dict, input_data: dict = None) -> dict:
-    """Endgame integration entry point.
-
-    input_data:
-      action (str): One of the supported actions (see below).
-      patient_id (str): Required for all actions.
-      ... action-specific fields (see each action's docstring).
-
-    Actions:
-      read                  - Read full patient record
-      edit-demographics     - Read-modify-write demographics (changes dict)
-      read-combos           - Read dropdown/combo values
-      read-sliding-fee      - Read current sliding fee assignment
-      calculate             - Calculate sliding fee from income/dependants/unit
-      search-provider       - Search providers by name
-      get-contacts          - Read patient contacts
-      add-contact           - Create a new contact
-      update-contact        - Update an existing contact
-      set-responsible-party - Set guarantor/responsible party
-      edit-income           - Calculate + assign sliding fee schedule
-    """
-    input_data = input_data or {}
-    action = input_data.get("action", "read")
-    patient_id = input_data.get("patient_id")
-
-    if not patient_id:
-        return {"status_code": 400, "body": {"error": "patient_id is required"}}
-
-    session = _build_session_from_headers(auth_headers)
-
-    with requests.Session() as client:
-        client.cookies.update(session["cookies"])
-
-        if action == "read":
-            return get_patient_info(client, session, patient_id)
-
-        elif action == "edit-demographics":
-            changes = input_data.get("changes", {})
-            if not changes:
-                return {"status_code": 400,
-                        "body": {"error": "changes dict is required"}}
-            return edit_demographics(client, session, patient_id, changes)
-
-        elif action == "read-combos":
-            return get_demographics_combos(client, session, patient_id)
-
-        elif action == "read-sliding-fee":
-            return get_sliding_fee_schedule(client, session, patient_id)
-
-        elif action == "calculate":
-            return calculate_sliding_fee(
-                client, session,
-                input_data.get("Income", "0"),
-                input_data.get("Dependants", "1"),
-                input_data.get("Unit", "Monthly"),
-            )
-
-        elif action == "search-provider":
-            search = input_data.get("search", "")
-            lastname, firstname = "", ""
-            if "," in search:
-                parts = search.split(",", 1)
-                lastname, firstname = parts[0].strip(), parts[1].strip()
-            else:
-                lastname = search.strip()
-            return {"providers": search_providers(
-                client, session, lastname, firstname)}
-
-        elif action == "get-contacts":
-            emergency_only = input_data.get("emergency_only", False)
-            return {"contacts": get_contacts(
-                client, session, patient_id, emergency_only)}
-
-        elif action == "add-contact":
-            contact = input_data.get("contact", {})
-            if not contact:
-                return {"status_code": 400,
-                        "body": {"error": "contact dict is required"}}
-            return add_contact(client, session, patient_id, contact)
-
-        elif action == "update-contact":
-            contact_id = input_data.get("contact_id")
-            contact = input_data.get("contact", {})
-            if not contact_id or not contact:
-                return {"status_code": 400,
-                        "body": {"error": "contact_id and contact are required"}}
-            return update_contact(
-                client, session, patient_id, contact_id, contact)
-
-        elif action == "set-responsible-party":
-            gr_id = input_data.get("gr_id", patient_id)
-            gr_rel = input_data.get("gr_rel", "1")
-            is_gr_pt = input_data.get("is_gr_pt", "1")
-            return set_responsible_party(
-                client, session, patient_id, gr_id, gr_rel, is_gr_pt)
-
-        elif action == "edit-income":
-            income_data = input_data.get("income_data", {})
-            if not income_data:
-                return {"status_code": 400,
-                        "body": {"error": "income_data dict is required"}}
-            return edit_income(client, session, patient_id, income_data)
-
-        else:
-            return {"status_code": 400,
-                    "body": {"error": f"Unknown action: {action}",
-                             "valid_actions": [
-                                 "read", "edit-demographics", "read-combos",
-                                 "read-sliding-fee", "calculate",
-                                 "search-provider", "get-contacts",
-                                 "add-contact", "update-contact",
-                                 "set-responsible-party", "edit-income",
-                             ]}}
