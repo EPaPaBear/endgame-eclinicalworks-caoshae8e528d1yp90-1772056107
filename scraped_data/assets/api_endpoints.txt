@@ -1,0 +1,51 @@
+# eClinicalWorks API Endpoints
+# Tenant: caoshae8e528d1yp90app.ecwcloud.com
+# All paths relative to https://caoshae8e528d1yp90app.ecwcloud.com
+
+# === AUTH ===
+GET  /mobiledoc/jsp/webemr/login.jsp
+GET  /mobiledoc/jsp/webemr/getRsaPublicKey.jsp
+POST /mobiledoc/jsp/webemr/setAESKey.jsp
+POST /mobiledoc/jsp/webemr/verifyUname.jsp
+GET  /mobiledoc/jsp/webemr/getPwdPage.jsp
+POST /mobiledoc/jsp/webemr/processLoginRequest.jsp
+
+# === PATIENT DEMOGRAPHICS ===
+GET  /mobiledoc/jsp/catalog/xml/getPatientInfo.jsp?patientId={id}&logView=true&AddlInfo=EthInfo
+POST /mobiledoc/jsp/webemr/toppanel/patientInfo/fetchdemographicsdata.jsp
+POST /mobiledoc/jsp/catalog/xml/setPatient.jsp?patientId={id}
+POST /mobiledoc/jsp/catalog/xml/setPatient1.jsp?context=demographics&patientId={id}&Id={id}
+
+# === CONTACTS ===
+POST /mobiledoc/jsp/catalog/xml/getContacts.jsp?patientId={id}
+POST /mobiledoc/jsp/catalog/xml/newContact.jsp
+POST /mobiledoc/jsp/catalog/xml/updateContact.jsp?contactId={id}&PatientId={pid}
+POST /mobiledoc/jsp/catalog/xml/getRelationData.jsp
+
+# === PROVIDERS ===
+POST /mobiledoc/jsp/catalog/xml/edi/getProviderList.jsp
+
+# === SLIDING FEE SCHEDULE ===
+POST /mobiledoc/jsp/catalog/xml/edi/getSlidingFeeScheduleForPatient.jsp?PatientId={id}
+POST /mobiledoc/jsp/catalog/xml/edi/calculateSlidingFeeSchedule.jsp?Income={n}&Dependant={n}&Unit={u}
+POST /mobiledoc/jsp/catalog/xml/edi/setSlidingFeeScheduleForPatient.jsp
+POST /mobiledoc/jsp/catalog/xml/edi/getPtSlidingScaleHistory.jsp?PtId={id}
+POST /mobiledoc/jsp/catalog/xml/edi/getSlidingScaleDetailForPatient.jsp?Id={id}
+POST /mobiledoc/jsp/catalog/xml/edi/loadSlidingOtherIncomeReason.jsp
+POST /mobiledoc/jsp/catalog/xml/edi/findSlidingMembers.jsp
+
+# === INSURANCE ===
+POST /mobiledoc/jsp/catalog/xml/getInsuranceInfo.jsp?patientId={id}&isPtDemo=true
+GET  /mobiledoc/jsp/uadmin/getInsuranceList.jsp?name={search}&searchBy=Name&MAXCOUNT=15
+POST /mobiledoc/jsp/uadmin/setPtInsurance.jsp
+GET  /mobiledoc/jsp/uadmin/getPtInsurance.jsp?PtInsId={id}
+POST /mobiledoc/jsp/uadmin/deletePtInsurance.jsp
+POST /mobiledoc/jsp/catalog/xml/edi/checkCaseExistsforInsurance.jsp?InsuranceDetailId={id}
+POST /mobiledoc/jsp/catalog/xml/edi/checkClaimExistsForInsurance.jsp?InsuranceDetailId={id}&PatientId={pid}
+POST /mobiledoc/jsp/catalog/xml/setInsDetail.jsp?patientId={id}
+
+# === RESPONSIBLE PARTY ===
+POST /mobiledoc/jsp/catalog/xml/setInsDetail.jsp?patientId={id}
+
+# === VALIDATION ===
+GET  /mobiledoc/jsp/webemr/lookup/facilityGroup-lookup.jsp

@@ -1,0 +1,79 @@
+{
+  "platform": "eclinicalworks",
+  "tenant": "caoshae8e528d1yp90",
+  "auth_type": "multi_step_encrypted",
+  "steps": [
+    {
+      "step": 1,
+      "action": "GET",
+      "url": "/mobiledoc/jsp/webemr/login.jsp",
+      "purpose": "Bootstrap session: JSESSIONID + CSRF token",
+      "extracts": ["JSESSIONID", "X-CSRF-TOKEN", "ApplicationGatewayAffinity"]
+    },
+    {
+      "step": 2,
+      "action": "GET",
+      "url": "/mobiledoc/jsp/webemr/getRsaPublicKey.jsp",
+      "purpose": "Get RSA-2048 public key for key exchange",
+      "extracts": ["rsa_public_key_pem"]
+    },
+    {
+      "step": 3,
+      "action": "POST",
+      "url": "/mobiledoc/jsp/webemr/setAESKey.jsp",
+      "purpose": "Register client AES-256-GCM key (RSA-encrypted)",
+      "body": {"key": "base64(RSA_PKCS1v15(aes_key))"}
+    },
+    {
+      "step": 4,
+      "action": "POST",
+      "url": "/mobiledoc/jsp/webemr/verifyUname.jsp",
+      "purpose": "Submit AES-GCM encrypted username",
+      "body": {"encdata": "base64(iv + AES_GCM(username) + tag)"},
+      "response": "302 -> /getPwdPage.jsp"
+    },
+    {
+      "step": 5,
+      "action": "CONDITIONAL",
+      "url": "/mobiledoc/jsp/webemr/getPwdPage.jsp",
+      "purpose": "Turnstile CAPTCHA (NOT enforced on this tenant)",
+      "skip_reason": "turnstile_enforced flag is false"
+    },
+    {
+      "step": 6,
+      "action": "POST",
+      "url": "/mobiledoc/jsp/webemr/setAESKey.jsp",
+      "purpose": "Re-register fresh AES key for password step"
+    },
+    {
+      "step": 7,
+      "action": "POST",
+      "url": "/mobiledoc/jsp/webemr/processLoginRequest.jsp",
+      "purpose": "Submit encrypted password hash",
+      "body": {
+        "encdata": "base64(iv + AES_GCM(SHA1(MD5(password))) + tag)",
+        "metadata": "practiceId, timezone, device info"
+      },
+      "response": "302 chain -> loginSuccess.jsp -> OTPVerification.jsp"
+    },
+    {
+      "step": 8,
+      "action": "POLL",
+      "url": "Mailgun inbox API",
+      "purpose": "2FA: Poll for email confirmation link",
+      "timeout_seconds": 120
+    },
+    {
+      "step": 9,
+      "action": "GET",
+      "url": "confirmation_link from email",
+      "purpose": "Complete 2FA, follow redirects to dashboard",
+      "extracts": ["final_JSESSIONID", "session_DID"]
+    }
+  ],
+  "output": {
+    "Cookie": "JSESSIONID=...; ApplicationGatewayAffinityCORS=...; ApplicationGatewayAffinity=...",
+    "X-CSRF-TOKEN": "uuid",
+    "X-Session-DID": "numeric_id"
+  }
+}
