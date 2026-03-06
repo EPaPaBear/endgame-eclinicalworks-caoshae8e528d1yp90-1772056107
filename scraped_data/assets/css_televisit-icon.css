@@ -1,0 +1,257 @@
+@font-face {
+  font-family: 'icon-televisit';
+  src: url('../fonts/tv-view-icons/icon-televisit.eot?mzlt15');
+  src: url('../fonts/tv-view-icons/icon-televisit.eot?mzlt15#iefix') format('embedded-opentype'),
+    url('../fonts/tv-view-icons/icon-televisit.ttf?mzlt15') format('truetype'),
+    url('../fonts/tv-view-icons/icon-televisit.woff?mzlt15') format('woff'),
+    url('../fonts/tv-view-icons/icon-televisit.svg?mzlt15#icon-televisit') format('svg');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+[class^="icon-televisit"],
+[class*=" icon-televisit"] {
+  /* use !important to prevent issues with browser extensions that change fonts */
+  font-family: 'icon-televisit' !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+
+  /* Better Font Rendering =========== */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+ .icon-televisit-bg-blur:before {
+  content: "\e900";
+  color: #666;
+  font-size: 20px;
+}
+
+ .icon-televisit-block:before {
+  content: "\e901";
+}
+
+ .icon-televisit-camera-switch:before {
+  content: "\e902";
+}
+
+ .icon-televisit-caret-up:before {
+  content: "\e903";
+}
+
+ .icon-televisit-chat:before {
+  content: "\e904";
+}
+
+ .icon-televisit-desktop:before {
+  content: "\e905";
+}
+
+ .icon-televisit-downdown-white:before {
+  content: "\e906";
+}
+
+ .icon-televisit-end-call:before {
+  content: "\e907";
+}
+
+ .icon-televisit-hand:before {
+  content: "\e908";
+}
+
+ .icon-televisit-healow:before {
+  content: "\e909";
+  color: #61cffb;
+}
+
+ .icon-televisit-image-preview:before {
+  content: "\e90a";
+}
+
+ .icon-televisit-left-arrow:before {
+  content: "\e90b";
+}
+
+ .icon-televisit-listeningIndicator:before {
+  content: "\e90c";
+  font-size: 18px;
+}
+
+ .icon-televisit-maximize:before {
+  content: "\e90d";
+  cursor: pointer;
+}
+
+ .icon-televisit-mike:before {
+  content: "\e90e";
+}
+
+ .icon-televisitmute:before {
+  content: "\e90f";
+}
+
+ .icon-televisit-note:before {
+  content: "\e910";
+}
+
+ .icon-televisit-screen-capture:before {
+  content: "\e911";
+}
+
+ .icon-televisit-screenshot:before {
+  content: "\e912";
+}
+
+ .icon-televisit-statistics-reports:before {
+  content: "\e913";
+}
+
+ .icon-televisit-stethoscope:before {
+  content: "\e914";
+}
+
+ .icon-televisit-translate:before {
+  content: "\e915";
+}
+
+ .icon-televisit-video-white:before {
+  content: "\e916";
+}
+
+ .icon-televisit-video:before {
+  content: "\e917";
+  font-size: 20px;
+}
+
+ .icon-televisit-carret-up .path1:before {
+  content: "\e918";
+  color: rgb(225, 225, 225);
+}
+
+ .icon-televisit-carret-up .path2:before {
+  content: "\e919";
+  margin-left: -1em;
+  color: rgb(0, 0, 0);
+}
+
+ .icon-televisit-close-red .path1:before {
+  content: "\e91a";
+  color: rgb(255, 255, 255);
+}
+
+ .icon-televisit-close-red .path2:before {
+  content: "\e91b";
+  margin-left: -1em;
+  color: rgb(252, 105, 92);
+}
+
+ .icon-televisitvideo-off:before {
+  content: "\e91c";
+}
+
+ .icon-televisit-hang-call:before {
+  content: "\e91d";
+  color: #fb6e6d;
+}
+
+ .icon-televisit-mute-mike:before {
+  content: "\e91e";
+}
+
+.icon-televisitmenu:before {
+  content: "\e91f";
+  color: #fff;
+  font-size: 24px;
+}
+
+.icon-televisitmodal-close:before {
+  content: "\e920";
+  color: #fff;
+  font-size: 24px;
+}
+
+.icon-televisitexternal-camera-off:before {
+  content: "\e921";
+  color: #797979;
+}
+
+.icon-televisitexternal-camera:before {
+  content: "\e922";
+  color: #fff;
+}
+
+.icon-televisitadd:before {
+  content: "\e923";
+}
+
+.icon-televisitsticky-note:before {
+  content: "\e924";
+}
+
+.icon-televisitminimize:before {
+  content: "\e925";
+}
+
+.icon-televisitvideo-long:before {
+  content: "\e926";
+}
+
+.icon-televisit-images:before {
+  content: "\e927";
+}
+
+.icon-televisit-speech-indicator:before {
+  content: "\e928";
+}
+
+.icon-televisit-chevron-up:before {
+  content: "\e929";
+}
+
+.icon-televisit-pause:before {
+  content: "\e92a";
+}
+
+.icon-televisit-delete:before {
+  content: "\e92b";
+}
+
+.icon-televisit-eye:before {
+  content: "\e92c";
+}
+
+.icon-televisit-close-bold:before {
+  content: "\e92d";
+}
+
+.icon-televisit-check-circled:before {
+  content: "\e92e";
+}
+
+.icon-televisit-alert-input-form:before {
+  content: "\e92f";
+}
+.icon-televisit-close-bold:before {
+    content: "\e92d";
+}
+
+.icon-televisit-check-circled:before {
+    content: "\e92e";
+}
+
+.icon-televisit-alert-input-form:before {
+    content: "\e92f";
+}
+
+.icon-televisit-chevron-right:before {
+    content: "\e930";
+}
+
+.icon-televisit-chevron-left:before {
+    content: "\e931";
+}

@@ -1,0 +1,92 @@
+{
+  "isEnabled": true,
+  "clientKey": "browser-stealth-envoy-production-11-prompt-medusa-3761",
+  "captchaList": [
+    "ReCaptcha2",
+    "ReCaptcha3",
+    "ReCaptchaEnterprise",
+    "HCaptcha",
+    "GeeTest",
+    "ImageToText",
+    "Turnstile",
+    "BLS",
+    "Binance"
+  ],
+  "captchaExtra": {
+    "ReCaptcha2": 1,
+    "HCaptcha": 1,
+    "ReCaptchaEnterprise": 1
+  },
+  "repeatsCount": 0,
+  "isEnabledIgnoreList": false,
+  "ignoreList": [],
+  "proxy": {
+    "isEnabled": false,
+    "type": "http",
+    "address": "",
+    "port": 3128,
+    "login": "",
+    "password": ""
+  },
+  "isManualResolving": false,
+  "isIPv6": false,
+  "delayAfterLoadPage": 2,
+  "recaptchaClickSelector": ".recaptcha-checkbox-checkmark",
+  "hCaptchaClickSelector": "div#checkbox",
+  "globalVariable": "",
+  "delayStartCount": {
+    "ReCaptcha2": 0,
+    "HCaptcha": 0,
+    "ReCaptcha3": 0,
+    "ReCaptchaEnterprise": 0,
+    "GeeTest": 0,
+    "ImageToText": 0,
+    "Turnstile": 0,
+    "BLS": 0,
+    "Binance": 0
+  },
+  "autoClick": {
+    "ReCaptcha2": true,
+    "ReCaptcha3": true,
+    "ReCaptchaEnterprise": true,
+    "HCaptcha": true,
+    "GeeTest": true,
+    "ImageToText": true,
+    "Turnstile": true,
+    "BLS": true,
+    "Binance": true
+  },
+  "autoSolve": {
+    "ReCaptcha2": true,
+    "ReCaptcha3": true,
+    "ReCaptchaEnterprise": true,
+    "HCaptcha": true,
+    "GeeTest": true,
+    "ImageToText": true,
+    "Turnstile": true,
+    "BLS": true,
+    "Binance": true
+  },
+  "delayBetweenClickEnabled": {
+    "ReCaptcha2": false,
+    "ReCaptcha3": false,
+    "ReCaptchaEnterprise": false,
+    "HCaptcha": false,
+    "GeeTest": false,
+    "ImageToText": false,
+    "Turnstile": false,
+    "BLS": false,
+    "Binance": false
+  },
+  "delayBetweenClickValue": {
+    "ReCaptcha2": 0,
+    "ReCaptcha3": 0,
+    "ReCaptchaEnterprise": 0,
+    "HCaptcha": 0,
+    "GeeTest": 0,
+    "ImageToText": 0,
+    "Turnstile": 0,
+    "BLS": 0,
+    "Binance": 0
+  }
+}

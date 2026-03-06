@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "fname": {
+      "type": "string",
+      "description": "Patient's first name (required)"
+    },
+    "lname": {
+      "type": "string",
+      "description": "Patient's last name (required)"
+    },
+    "dob": {
+      "type": "string",
+      "description": "Date of birth in YYYY-MM-DD format (e.g. '1990-01-15'). Cannot be a future date."
+    },
+    "sex": {
+      "type": "string",
+      "enum": ["Male", "Female", "Unknown"],
+      "description": "Patient's sex/gender. Must be exactly 'Male', 'Female', or 'Unknown' (case-sensitive)."
+    },
+    "mname": {
+      "type": "string",
+      "description": "Patient's middle name (optional)"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number in XXX-XXX-XXXX format (e.g. '555-123-4567'). Include the dashes."
+    },
+    "email": {
+      "type": "string",
+      "description": "Patient's email address (optional)"
+    },
+    "address1": {
+      "type": "string",
+      "description": "Street address line 1 (optional)"
+    },
+    "address2": {
+      "type": "string",
+      "description": "Street address line 2 (optional)"
+    },
+    "city": {
+      "type": "string",
+      "description": "City name — letters and spaces only, no numbers or special characters (optional)"
+    },
+    "state": {
+      "type": "string",
+      "description": "2-letter US state code, uppercase (e.g. 'CA', 'NY', 'TX'). Optional."
+    },
+    "zip": {
+      "type": "string",
+      "description": "ZIP code — either 5-digit ('90210') or ZIP+4 ('90210-1234'). Optional."
+    },
+    "country": {
+      "type": "string",
+      "description": "2-letter ISO country code, uppercase (e.g. 'US', 'CA'). Optional."
+    }
+  },
+  "required": ["fname", "lname", "dob", "sex"]
+}

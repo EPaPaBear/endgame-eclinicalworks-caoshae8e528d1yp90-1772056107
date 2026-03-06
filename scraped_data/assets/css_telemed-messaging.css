@@ -1,0 +1,756 @@
+#telemedMessagingModal {
+    z-index: 9999;
+}
+#telemedMessagingModal .received_withd_msg p {
+    background: #ebebeb none repeat scroll 0 0;
+    border-radius: 3px;
+    color: #646464;
+    font-size: 14px;
+    margin: 0;
+    padding: 5px 10px 5px 12px;
+    width: 100%;
+}
+
+#telemedMessagingModal .whitebg {
+    background: white !important;
+}
+#telemedMessagingModal .tmheaderlbl {
+    display: inline-block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    font-family: 'Open Sans', 'Segoe UI Symbol', sans serif;
+}
+#telemedMessagingModal .tmgraylbl {
+    font-family: 'Open Sans', 'Segoe UI Symbol', sans serif;
+    font-size: 11px;
+    color: #989898;
+}
+
+#telemedMessagingModal .tmredlbl {
+    font-family: 'Open Sans', 'Segoe UI Symbol', sans serif;
+    font-size: 11px;
+    color: green;
+}
+
+#telemedMessagingModal .time_date {
+    color: #747474;
+    display: block;
+    font-size: 12px;
+    margin: 8px 0 0;
+}
+
+#telemedMessagingModal .time_date.status-green {
+    color: #28a745;
+    font-weight: 600;
+}
+
+#telemedMessagingModal .time_date.status-red {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+#telemedMessagingModal .mesgs {
+    float: left;
+    padding: 10px 10px 0 10px;
+    width: 100%;
+    overflow-y: auto;
+    height: 400px;
+    background-color: white;
+}
+
+#telemedMessagingModal .msg_history {
+    height: 380px;
+}
+
+#telemedMessagingModal .sent_msg span {
+    background: #2b91d9 none repeat scroll 0 0;
+    border-radius: 3px;
+    font-size: 14px;
+    margin: 0;
+    color: #fff;
+    padding: 5px 10px 5px 12px;
+}
+
+#telemedMessagingModal .outgoing_msg {
+    /*overflow: hidden;*/
+    margin: 10px 0 10px;
+}
+
+#telemedMessagingModal .sent_msg {
+    padding: 0;
+    word-break: break-word;
+}
+
+#telemedMessagingModal .sent_msg_time {
+    padding: 0;
+    height: 40px;
+}
+#telemedMessagingModal .msg_write_tmfooter  {
+    background: white !important;
+}
+#telemedMessagingModal .input_msg_write input {
+    border: none;
+    color: #4c4c4c;
+    font-size: 15px;
+    height: 40px;
+    width: 90%;
+    background: #f5f5f4;
+    border-radius: 10px;
+    margin-left: 0px;
+    float: left;
+    padding: 5px;
+}
+#telemedMessagingModal .input_msg_write input[disabled] {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+#telemedMessagingModal .type_msg {
+    position: relative;
+    min-height: 48px;
+}
+
+#telemedMessagingModal .msg_send_btn {
+    background: #2b91d9;
+    border: none;
+    border-radius: 50%;
+    color: #fff;
+    cursor: pointer;
+    font-size: 17px;
+    height: 35px;
+    width: 35px;
+    margin-top: 5px;
+    margin-right: 7px;
+}
+#telemedMessagingModal .msg_send_btn[disabled] {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+#telemedMessagingModal .msg_send_bottom_lbl {
+    color: #989898;
+    padding-left: 5px;
+    width: 90%;
+}
+
+#telemedMessagingModal .online-icon {
+    height: 10px; width: 10px; background-color: #28a745; border-radius: 50%; display: inline-block;
+}
+
+#telemedMessagingModal .offline-icon {
+    height: 10px; width: 10px;  background-color: #999; border-radius: 50%; display: inline-block;
+}
+
+
+    /* for new multi massaging*/
+
+#telemedMessagingModal .inbox_people {
+    float: left;
+    overflow: hidden;
+    width: 100%;
+    border-right: 1px solid #e5e5e5;
+}
+
+#telemedMessagingModal .chat_ib h5 {
+    font-size: 15px;
+    color: #464646;
+    margin: 0 0 8px 0;
+}
+
+#telemedMessagingModal .chat_ib h5 span {
+    font-size: 13px;
+    float: right;
+}
+
+#telemedMessagingModal .chat_ib p {
+    font-size: 14px;
+    color: #989898;
+    margin: auto
+}
+
+#telemedMessagingModal .chat_ib {
+    float: left;
+    padding: 0 0 0 15px;
+    width: 88%;
+}
+
+#telemedMessagingModal .chat_people {
+    overflow: hidden;
+    clear: both;
+}
+
+#telemedMessagingModal .chat_list {
+    border-bottom: 1px solid #e5e5e5;
+    margin: 0;
+    padding: 5px;
+}
+
+#telemedMessagingModal .inbox_chat {
+    height: 400px;
+    overflow-y: auto;
+}
+
+#telemedMessagingModal .active_chat {
+    background: #ebebeb;
+}
+
+#telemedMessagingModal .tm-top-loader {
+    position: relative;
+    width: 100%;
+}
+
+#telemedMessagingModal .tm-left-panel {
+    display: none;
+    float: left;
+    width: 40%;
+    height: 400px;
+}
+
+#telemedMessagingModal .tm-left-panel.active {
+    display: inline-block;
+}
+
+#telemedMessagingModal .tm-right-panel {
+    display: inline-block;
+    width: 100%;
+    height: 400px;
+}
+
+#telemedMessagingModal .tm-right-panel.active {
+    display: inline-block;
+    width: 60%;
+}
+
+#telemedMessagingModal .tm-offline-message {
+    width: 100%;
+    text-align: center;
+    background: #ececec;
+    position: relative;
+    min-height: 48px;
+    padding: 15px;
+}
+
+/*delivered message tooltip-popupo css */
+
+#telemedMessagingModal .tmtooltiptext {
+    visibility: hidden;
+    top: 20px;
+    left: 0px;
+    display: block;
+    width: 250px;
+    max-height: 227px;
+}
+
+#telemedMessagingModal .show-list:hover + .tmtooltiptext  {
+    visibility: visible;
+}
+
+#telemedMessagingModal .tmtooltiptext:hover  {
+    visibility: visible;
+}
+
+#telemedMessagingModal .tmtooltiptext  .arrow  {
+    left: 80%;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-title  {
+    display: none;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-content  {
+    padding: 0px;
+    overflow-y: auto;
+    max-height: 200px;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-content .form-group  {
+    border-bottom: 1px solid #e5e5e5; padding: 5px; margin-bottom:0px;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-content .form-group .fa-check-circle-o {
+    margin: 5px; color: #28a745; font-size: large;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-content .form-group .fa-times-circle-o{
+    margin: 5px; color: #b30000; font-size: large;
+}
+
+#telemedMessagingModal .tmtooltiptext  .popover-content .form-group .tm-user-name{
+    margin: 5px;
+}
+
+
+/*Provider healow Now notification*/
+.televisit-notification-wrapper {
+    position: fixed;
+    right: 6px;
+    top: 39px;
+    z-index: 999999;
+    border-radius: 8px;
+    border: 1px solid #BCBCBC;
+    background: #FFF;
+}
+
+.televisit-notification-wrapper .televisit-notification-body {
+    padding: 16px;
+}
+
+.televisit-notification-wrapper .televisit-notification-footer {
+    padding: 0px 16px 16px 16px;
+}
+
+.televisit-notification-body .video-icon-wrapper {
+    border-radius: 4px;
+    background: #FCF3F9;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    width: 40px;
+    margin-right: 8px;
+}
+
+.televisit-notification-body .video-icon-wrapper .healow-icon-video {
+    font-size: 24px;
+    color: #6D2157;
+}
+.televisit-notification-wrapper .fnt16semiboldnormal {
+    font: 600 16px / normal 'Open Sans';
+}
+.televisit-notification-wrapper .purple-color {
+    color: #6D2157;
+}
+.televisit-notification-wrapper .fnt14semiboldnormal {
+    font: 600 14px / normal 'Open Sans';
+}
+.televisit-notification-wrapper .video-icon-wrapper {
+    border-radius: 4px;
+    background: #FCF3F9;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    width: 40px;
+    margin-right: 8px;
+}
+.televisit-notification-wrapper .video-icon-wrapper .healow-icon-video {
+    font-size: 24px;
+    color: #6D2157;
+}
+.televisit-notification-wrapper .healow-icon-video:before {
+    content: "\e930";
+}
+.televisit-notification-wrapper .btn-secondary{
+    padding: 4px 8px;
+    height: 24px;
+    font-size: 12px;
+    line-height: 24px;
+    border-radius: 4px;
+    background-color: #e1e1e1;
+    color: #000000;
+    border-color: #969696;
+    display: flex;
+    align-items: center;
+}
+.televisit-notification-wrapper .btn-primary{
+    padding: 4px 8px;
+    height: 24px;
+    font-size: var(--font-size-xs);
+    line-height: 15px;
+    border-radius: 4px;
+    background: #6d2157;
+    border-color: #6d2157;
+    color: #ffff;
+    display: flex;
+    align-items: center;
+}
+.televisit-notification-wrapper .justify-content-end{
+    justify-content: flex-end;
+}
+.televisit-notification-wrapper .d-flex{
+    display: flex;
+}
+.televisit-notification-wrapper.vwr-notification {
+    width: 442px;
+    max-width: 442px;
+    box-shadow: 0px 15px 20px 0px rgba(13, 6, 48, 0.15);
+    border: 0px;
+}
+
+.televisit-notification-wrapper {
+    position: fixed;
+    right: 6px;
+    top: 39px;
+    z-index: 999999;
+    border-radius: 8px;
+    border: 1px solid #BCBCBC;
+    background: #FFF;
+    box-shadow: 0px 6px 12px 0px rgba(0, 0, 0, 0.18);
+    max-width: 353px;
+}
+
+.televisit-notification-wrapper .televisit-notification-body {
+    padding: 16px;
+}
+
+.televisit-notification-wrapper .televisit-notification-footer {
+    padding: 0px 16px 16px 16px;
+}
+
+.televisit-notification-body .video-icon-wrapper {
+    border-radius: 4px;
+    background: #FCF3F9;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    width: 40px;
+    margin-right: 8px;
+}
+
+.televisit-notification-body .patient-info-for-vwr .video-icon-wrapper {
+    padding: 16px;
+    border-radius: 3px 0 0 3px;
+}
+
+.televisit-notification-body .video-icon-wrapper .healow-icon-video {
+    font-size: 24px;
+    color: #6D2157;
+}
+
+.televisit-notification-wrapper.vwr-notification {
+    width: 442px;
+    max-width: 442px;
+    box-shadow: 0px 15px 20px 0px rgba(13, 6, 48, 0.15);
+    border: 0px;
+}
+
+.televisit-notification-wrapper.vwr-notification .vwr-notification-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    margin-right: -16px;
+    padding-right: 16px;
+    gap: 12px;
+    display: flex;
+    flex-direction: column;
+}
+
+.televisit-notification-wrapper.vwr-notification .vwr-notification-card {
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+    border: 1px solid #EFDCE9;
+}
+
+.televisit-notification-wrapper.vwr-notification .vwr-notification-card .video-icon-wrapper {
+    height: 67px;
+    width: 56px;
+    margin-right: 0px;
+    background: #EFDCE9;
+}
+
+.televisit-notification-wrapper.vwr-notification .vwr-notification-card .vwr-notification-card-body {
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    width: calc(100% - 56px);
+}
+.televisit-notification-wrapper .gap-4px{
+    gap:4px;
+}
+.televisit-notification-wrapper .gap-8px{
+    gap:8px;
+}
+.televisit-notification-wrapper .gap-16px{
+    gap:16px;
+}
+.televisit-notification-wrapper .w220{
+    width: 220px;
+}
+.icon-televisit-images:before {
+    content: "\e927";
+    font-size: 19px;
+    color: #E88841;
+}
+.icon-televisit-images-active:before{
+    content: "\e927";
+    font-size: 19px;
+    color: #000000;
+}
+/*Uploaded image section changes*/
+.uploaded-images-section{
+    height: 340px;
+    background: #FFF;
+    padding: 12px;
+    border: solid 2px #4d5558;
+    overflow: auto;
+}
+.uploaded-images-section .progress-note-section {
+    height: 210px;
+}
+.uploaded-images-section.images-appended .progress-note-section {
+    height: 266px;
+}
+.py8px {
+    padding: 8px 0;
+}
+
+.uploaded-images-section .toaster-msg-wrap {
+    padding: 8px;
+    border-radius: 4px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+}
+
+.uploaded-images-section .warning-bg-toaster {
+    background: #fbce2a;
+}
+
+.uploaded-images-section .warning-bg-toaster .icon {
+    color: #0D0630;
+}
+
+.uploaded-images-section .toaster-msg-wrap .icon {
+    font-size: 16px;
+    margin-right: 4px;
+}
+
+.uploaded-images-section .warning-bg-toaster.hide {
+    display: none;
+}
+
+.uploaded-images-section .success-bg-toaster {
+    background: #AEE693;
+    display: none;
+}
+
+.uploaded-images-section .success-bg-toaster .icon {
+    color: #008600;
+    font-size: 20px;
+}
+
+.uploaded-images-section .success-bg-toaster.show {
+    display: flex !important;
+}
+
+.uploaded-images-section.images-appended .progress-note .image-checkbox,
+.uploaded-images-section.images-appended .progress-note .icon-televisit-delete,
+.uploaded-images-section.images-appended .before-upload-header {
+    display: none;
+}
+
+.uploaded-images-section.images-appended .progress-note .icon-televisit-eye {
+    margin-right: 0;
+}
+
+.uploaded-images-section .after-upload-header {
+    display: none;
+}
+
+.uploaded-images-section.images-appended .after-upload-header {
+    display: block;
+}
+
+.uploaded-images-section .title-text {
+    padding: 4px 0 8px;
+}
+
+.uploaded-images-section .before-upload-header .title-text {
+    line-height: 15px !important;
+}
+
+.uploaded-images-section .after-upload-header .title-text {
+    line-height: 19px !important;
+}
+
+.uploaded-images-section .before-upload-header .select-all-wrap {
+    border-bottom: 1px solid #E3E5E7;
+}
+
+.fntltBlack {
+    color: #2B2B2B;
+}
+.uploaded-images-section .d-flex{
+    display: flex;
+}
+.uploaded-images-section .justify-content-between{
+    justify-content: space-between;
+}
+.uploaded-images-section .btn-secondary {
+    border: 1px solid transparent;
+    padding: 4.5px 10px !important;
+    height: 24px;
+    font-size: 12px;
+    line-height: 15px;
+    border-radius: 3px;
+    background: #e1e1e1;
+    color: #3d3d3d;
+    border-color: #a3a3a3;
+}
+.uploaded-images-section .btn-secondary:hover, .uploaded-images-section .btn-secondary.hover, .btn-footer:hover, .btn-footer.hover {
+    background: #d1d1d1;
+    color: #3d3d3d;
+    border-color: #797979;
+}
+.uploaded-images-section .lh-15 {
+    line-height: 15px !important;
+}
+.uploaded-images-section .fnt12 {
+    font-size: 12px !important;
+    font-weight: 400;
+}
+.uploaded-images-section .fnt12 {
+    font-size: 12px !important;
+}
+.uploaded-images-section .mb-0 {
+    margin-bottom: 0px;
+}
+.uploaded-images-section .mt-0 {
+    margin-top: 0px;
+}
+.uploaded-images-section .mr-2 {
+    margin-right: 8px;
+}
+.uploaded-images-section .mr6px {
+    margin-right: 6px;
+}
+.uploaded-images-section .options-section .icon {
+    font-size: 20px;
+    color: #6C6C6C;
+}
+.uploaded-images-section .progress-note {
+    border-bottom: 1px solid #E3E5E7;
+    background: #FFF;
+    padding: 8px 0;
+}
+/*Image preview*/
+.hnow-image-preview{
+    z-index: 999999999;
+}
+/*.hnow-image-preview .modal-dialog{
+   width: auto!important;
+}
+.hnow-image-preview .modal-fullscreen-custom {
+    height: calc(100vh - 36px);
+    width: calc(100vw - 36px);
+}
+.hnow-image-preview .modal-header-custom {
+    background-color: #2b91d9;
+    color: white;
+    display: flex;
+    height: 30px;
+    justify-content: space-between;
+}*/
+.hnow-image-preview .image-container {
+    height: calc(100vh - 56px); /* Adjust based on header height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.hnow-image-preview .image-container img {
+    max-height: 100%;
+    max-width: 100%;
+    object-fit: contain;
+    transition: opacity 0.4s ease;
+}
+.hnow-image-preview .modal-title{
+    top: 3px;
+    position: relative;
+    font-weight: bold;
+}
+.hnow-image-preview .nav-button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    background-color: rgba(0,0,0,0.4);
+    color: white;
+    border: none;
+    font-size: 2rem;
+    padding: 10px 15px;
+    cursor: pointer;
+}
+.hnow-image-preview .nav-left {
+    left: 10px;
+}
+.hnow-image-preview .nav-right {
+    right: 10px;
+}
+.images-uploaded-icon-wrapper .counter-icon {
+    position: absolute;
+    border-radius: 8px;
+    background: #E88841;
+    padding: 0px 4px;
+    justify-content: center;
+    align-items: center;
+    font: 400 11px / 15px "open_sansregular", sans-serif;
+    width: 15px;
+    height: 15px;
+    color: #0D0630;
+}
+
+#teleVisitImagePreview {
+    height: 100vh;
+    top: 0;
+    position: fixed;
+    z-index: 999999;
+    width: 100vw;
+    align-items: center;
+    justify-content: center;
+    background: #000000ad;
+    display: none;
+}
+
+#teleVisitImagePreview button.icon-televisit-close-bold {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    font-size: 20px;
+    color: #fff;
+    border: none;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    background: #000;
+    height: 36px;
+    width: 36px;
+}
+#teleVisitImagePreview .img-preview-nav #nextBtn {
+    right: 20%;
+}
+#teleVisitImagePreview .img-preview-nav #prevBtn {
+    left: 20%;
+}
+#teleVisitImagePreview .btn-nav:disabled {
+    color: #B6AEDB;
+    border: 1px solid #C2C3C6;
+    opacity: 0.7;
+}
+#teleVisitImagePreview .btn-nav {
+    position: absolute;
+    top: 50%;
+    border-radius: 56px;
+    border: 1px solid #727D89;
+    background: #fff;
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    color: #6C7D89;
+}
+#teleVisitImagePreview .image-preview-div{
+    height: calc(100vh - 10px);
+    align-items: center;
+    display: flex;
+}
+#teleVisitImagePreview .preview-controls-container{
+    display: flex;
+    justify-content: center;
+}

@@ -1,0 +1,329 @@
+/* multiselect input css here */
+
+.self-recovery-wrapper .custom-multiselect-input {
+    position: relative;
+    display: flex;
+    width: 100%;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group {
+    background: #fff;
+    height: 24px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 11px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding-left: 2px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group-hide-inner-border {
+    border: 0 !important;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group.active,
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group:hover {
+    border-color: #2196f3;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .default-label {
+    font-family: "open_sansregular";
+    font-size: 11px;
+    font-style: italic;
+    color: #999;
+    width: max-content;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .badge-wrapper {
+    display: flex;
+    gap: 4px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .badge-wrapper .badges {
+    display: none;
+    background: #eee;
+    font-size: 11px;
+    padding: 2px 5px;
+    width: 80px;
+    height: 18px;
+    border-radius: 3px;
+    z-index: 3;
+    margin: 0px 2px;
+    color: #000;
+    justify-content: space-between;
+    align-items: center;
+    line-height: 14px;
+    font-family: "open_sansregular";
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .badge-wrapper .badges:nth-child(-n + 1) {
+    display: flex;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .badge-wrapper .badges .badges-text {
+    width: calc(100% - 15px);
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 11px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .badge-wrapper .badges .close-icon {
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .selected-list {
+    margin-right: 4px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .selected-list .count {
+    font-size: 11px;
+    font-family: "open_sansregular";
+    height: 17px;
+    background: #747373;
+    width: 26px;
+    color: #fff;
+    text-align: center;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group input {
+    border: none;
+    height: 22px;
+    flex: 1 1 auto;
+    padding-left: 5px;
+    min-width: 48px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group input::placeholder {
+    font-size: 11px;
+    line-height: 11px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .multi-select-input-group-addon {
+    height: 22px;
+    min-width: 24px;
+    border: none;
+    border-left: 1px solid #ccc;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group.active .multi-select-input-group-addon {
+    border-color: #2196f3;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt {
+    min-height: min-content;
+    width: max-content;
+    position: absolute;
+    right: 6px;
+    top: 32px;
+    z-index: 10;
+
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .rightsection {
+    display: flex;
+    padding: 8px 8px 8px 0px;
+    align-items: center;
+    gap: 10px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .rightsection .btn.btn-xs {
+    color: #034763;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fff;
+    border-radius: 2px;
+    height: 24px;
+    padding: 0px 10px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .left-section {
+    width: 45px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .left-section .self-recovery-icon-warning {
+    font-size: 18px;
+    color: #444444;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast {
+    background: #FBCE2A;
+    height: auto;
+    display: flex;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast {
+    position: relative;
+    background: #FBCE2A;
+    border: 1px solid #FBCE2A;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast:after,
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast:before {
+    bottom: 100%;
+    left: calc(100% - 30px);
+    border: solid transparent;
+    content: "";
+    height: 0;
+    width: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast:after {
+    border-color: rgba(251, 206, 42, 0);
+    border-bottom-color: #FBCE2A;
+    border-width: 7px;
+    margin-left: -7px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .confirmation-propmt .yellow-toast:before {
+    border-color: rgba(251, 206, 42, 0);
+    border-bottom-color: #FBCE2A;
+    border-width: 8px;
+    margin-left: -8px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .multi-select-input-group-addon .self-recovery-icon-caret-down {
+    font-size: 4px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .self-recovery-icon-cleartext {
+    font-size: 9px;
+    cursor: pointer;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .multi-select-input-group-addon:nth-last-child(2) {
+    border-radius: 0px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multi-select-input-group .multi-select-input-group-addon .icon-close {
+    font-size: 10px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multiselect-dropdown-list {
+    width: 100%;
+    border: 1px solid #dbdbdb;
+    box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.18);
+    background: #fff;
+    position: absolute;
+    z-index: 5;
+    top: 25px;
+    border-radius: 3px;
+    overflow-y: scroll;
+    max-height: 120px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multiselect-dropdown-list ul li {
+    padding: 5px 10px;
+    font-size: 11px;
+    border-bottom: 1px solid #e1e1e1;
+    color: #212121;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multiselect-dropdown-list ul li:hover {
+    background: #fff3e9;
+    color: #000;
+    cursor: pointer;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .multiselect-dropdown-list ul li input[type='checkbox'] {
+    width: 12px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper {
+    box-shadow: 0px 0px 5px 0px rgba(29, 29, 29, 0.26);
+    width: 180px;
+    float: right;
+    /* margin-right: 20px;
+    */
+    border-radius: 3px;
+    position: absolute;
+    background: #fff;
+    z-index: 10;
+    top: 30px;
+    left: calc(100% - 206px);
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper .scroller {
+    max-height: 120px;
+    overflow-y: scroll;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper ul {
+    margin-bottom: 0px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper .scroller ul li {
+    padding: 0px 10px;
+    height: 24px;
+    color: #000;
+    list-style: none;
+    font-size: 11px;
+    border-bottom: 1px solid #ddd;
+    font-weight: 400;
+    list-style-position: inside;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-items: center;
+    display: flex;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper .scroller ul li .icon-close {
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper:after,
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper:before {
+    bottom: 100%;
+    left: 89%;
+    border: solid transparent;
+    content: "";
+    height: 0;
+    width: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper:after {
+    border-color: rgba(255, 255, 255, 0);
+    border-bottom-color: #fff;
+    border-width: 7px;
+    margin-left: -7px;
+}
+
+.self-recovery-wrapper .custom-multiselect-input .selected-list-wrapper:before {
+    border-color: rgba(210, 210, 210, 0);
+    border-bottom-color: #d2d2d2;
+    border-width: 8px;
+    margin-left: -8px;
+}
+
+.login-settings-popup-footer{
+    height:295px;
+    border-bottom: 1px solid #CCCCCC;
+}
+
+/* multiselect inlut css ends here */

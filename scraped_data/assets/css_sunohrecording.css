@@ -1,0 +1,142 @@
+@font-face {
+    font-family: 'sunoh-scribe-module';
+    src: url('/mobiledoc/jsp/webemr/sunoh/fonts/sunoh-scribe-module.eot?vpj5ea');
+    src: url('/mobiledoc/jsp/webemr/sunoh/fonts/sunoh-scribe-module.eot?vpj5ea#iefix') format('embedded-opentype'),
+    url('/mobiledoc/jsp/webemr/sunoh/fonts/sunoh-scribe-module.ttf?vpj5ea') format('truetype'),
+    url('/mobiledoc/jsp/webemr/sunoh/fonts/sunoh-scribe-module.woff?vpj5ea') format('woff'),
+    url('/mobiledoc/jsp/webemr/sunoh/fonts/sunoh-scribe-module.svg?vpj5ea#sunoh-scribe-module') format('svg');
+    font-weight: normal;
+    font-style: normal;
+    font-display: block;
+}
+
+#SunohRecordings .sunohicons-sunoh:before{
+    font-size: 16px;
+    color: #FB2B66 !important;
+    content: "\e905";
+}
+
+.sunoh-recording .sunohicons-sunoh:before{
+    color: #FB2B66 !important;
+    content: "\e905";
+}
+
+.sunoh-recording .sunohicons-sunoh{
+    text-shadow: 0px 0px 2px #e9f8ff;
+}
+
+[class^="sunohicons-"],
+[class*=" sunohicons-"] {
+    /* use !important to prevent issues with browser extensions that change fonts */
+    font-family: 'sunoh-scribe-module' !important;
+    speak: never;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+
+    /* Better Font Rendering =========== */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.sunoh-recording .height28px{
+    height: 28px !important;
+    margin-bottom:10px;
+}
+
+.sunoh-recording .dropdown-menu > li > a {
+    border-bottom: none;
+}
+
+.sunoh-recording .dropdown-menu>li>a:hover{
+    background-color: unset;
+}
+
+.sunoh-recording .dropdown-menu > li:hover {
+    background-color: #E9F8FF;
+}
+
+.sunoh-recording ul.tagit.provider-lookup-ul {
+    padding: 1px 0px;
+    overflow: auto;
+    margin-left: inherit;
+    margin-right: inherit;
+    min-height: 25px !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-top-right-radius: 0px !important;
+    border-bottom-right-radius: 0px !important;
+    border-color: #CCCCCC !important;
+}
+
+.sunoh-recording .colorDivVisitStatus{
+    height: 10px;
+    width: 10px;
+    margin-left: 0px;
+    border: 1px solid black;
+    margin-top: 2px;
+}
+
+.sunoh-recording .colorDropDown{
+    display: block;
+    width:94%;
+    margin-left:-1px;
+    max-height:202px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.sunoh-recording .colorDivAll{
+    height: 10px;
+    width: 10px;
+    margin-left: 10px;
+    border: 1px solid white;
+    margin-top: 5px;
+}
+
+.sunoh-recording .colorDiv{
+    height: 10px;
+    width: 10px;
+    margin-left: 10px;
+    border: 1px solid black;
+    margin-top: 5px;
+}
+
+.sunoh-recording .height25px{
+    height: 25px !important;
+}
+
+#review-summary-table .jellybean-icon-ascending
+{
+    background:url(/mobiledoc/jsp/webemr/img/reorder-ascending.png) 0 0 no-repeat;
+    display: inline-block;
+    width: 10px;
+    height: 11px;
+}
+#review-summary-table .jellybean-icon-descending
+{
+    background:url(/mobiledoc/jsp/webemr/img/reorder-descending.png) 0 0 no-repeat;
+    display: inline-block;
+    width: 10px;
+    height: 11px;
+}
+#review-summary-table .jellybean-selected-sort {
+    color: #FFFFFF;
+    background: #005172;
+}
+#reviewSunohSummaryListWrapper td:first-child {
+    text-align: left;
+}
+#reviewSunohSummaryListWrapper td:last-child {
+    text-transform: uppercase;
+}
+.sunoh-recording .jellybean-icon-white-filter {
+    background: url(/mobiledoc/jsp/webemr/img/new-filter.png) 0 0 no-repeat;
+    width: 13px;
+    height: 16px;
+}
+#dtpFromDate {
+    cursor: pointer;
+}

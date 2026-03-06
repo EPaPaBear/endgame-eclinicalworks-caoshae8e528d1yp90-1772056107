@@ -1,0 +1,134 @@
+@font-face {
+  font-family: 'sunoh-speech-module';
+  src: url('../../fonts/sunoh-scribe-module.eot?vpj5ea');
+  src: url('../../fonts/sunoh-scribe-module.eot?vpj5ea#iefix') format('embedded-opentype'),
+  url('../../fonts/sunoh-scribe-module.ttf?vpj5ea') format('truetype'),
+  url('../../fonts/sunoh-scribe-module.woff?vpj5ea') format('woff'),
+  url('../../fonts/sunoh-scribe-module.svg?vpj5ea#sunoh-scribe-module') format('svg');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+[class^="sunohspeechicons-"],
+[class*=" sunohspeech-"] {
+  /* use !important to prevent issues with browser extensions that change fonts */
+  font-family: 'sunoh-speech-module' !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+
+  /* Better Font Rendering =========== */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.sunohSpeechMicContainer {
+  display: flex;
+}
+
+.sunohSpeechMicContainer .sunohspeechicons-sunoh:before {
+  content: "\e905";
+  color: #FB2B66;
+  font-size: 16px;
+}
+
+.sunohSpeechMicContainer .btn-sunohspeech-mic {
+  padding: 2px 4px 0px;
+}
+.sunohSpeechMicContainer .sunohspeechicons-mic:before {
+  content: "\e907";
+  color: #000;
+  font-size: 16px;
+}
+
+.sunohSpeechMicContainer .sunohspeechicons-pause:before {
+  content: "\e908";
+  color: #000;
+}
+
+.sunohSpeechMicContainer .btn-sunohspeech-stop {
+  padding: 2px 4px 0px;
+  margin-right: 5px;
+}
+
+.sunohSpeechMicContainer .sunohspeechicons-stop:before {
+  content: "\e90d";
+  color: #000;
+  font-size: 13px;
+}
+
+.sunohSpeechMicContainer.processing a, .sunohSpeechMicContainer.processing button {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.sunohSpeechMicContainer .sunoh-speech-mic-btn {
+  background: var(--black-white-white, #FFF);
+  border: 1px solid #fb2b66;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 50px;
+  justify-content: center;
+}
+
+.sunohSpeechMicContainer .callRunningContainer {
+  flex-direction: row;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #fb2b66;
+  background: var(--black-white-white, #FFF);
+  border-radius: 5px;
+  padding-left: 5px;
+  min-height: 26px;
+  flex: 1;
+}
+
+.sunohSpeechMicContainer .callRunningContainer .middle-container {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  display: flex;
+  padding: 5px;
+}
+
+.sunohSpeechMicContainer .callRunningContainer .btn-layout {
+  padding: 0;
+  margin: 3px;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.sunohSpeechMicContainer .callRunningContainer .btn-right {
+  /*border-left: 1px solid var(--sunoh-widget-bg, #190C2C);*/
+  padding-right: 5px;
+  padding-left: 5px;
+  color: #000;
+}
+
+.sunohSpeechMicContainer .recording-circle {
+  background-color: red;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: ease sunoh-speech-recording-pulse 1.5s infinite;
+}
+
+@keyframes sunoh-speech-recording-pulse {
+  0% {
+    background-color: red;
+  }
+  50% {
+    background-color: #f06c6c;
+  }
+  100% {
+    background-color: red;
+  }
+}

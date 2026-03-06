@@ -1,0 +1,288 @@
+@font-face {
+    font-family: 'icon-moon-font';
+    src:  url('../fonts/icon-moon-font.eot?n93xzs');
+    src:  url('../fonts/icon-moon-font.eot?n93xzs#iefix') format('embedded-opentype'),
+      url('../fonts/icon-moon-font.ttf?n93xzs') format('truetype'),
+      url('../fonts/icon-moon-font.woff?n93xzs') format('woff'),
+      url('../fonts/icon-moon-font.svg?n93xzs#icon-moon-font') format('svg');
+    font-weight: normal;
+    font-style: normal;
+    font-display: block;
+  }
+  
+  [class^="lookup-icon-"], [class*=" lookup-icon-"] {
+    /* use !important to prevent issues with browser extensions that change fonts */
+    font-family: 'icon-moon-font' !important;
+    speak: never;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+    text-indent: 0 !important;
+  
+    /* Better Font Rendering =========== */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  .lookup-icon-timestamp:before {
+    content: "\e819";
+  }
+  .lookup-icon-given:before {
+    content: "\e873";
+  }
+  .lookup-icon-filter-collapsed:before {
+    content: "\e900";
+  }
+  .lookup-icon-filter-expanded:before {
+    content: "\e901";
+  }
+  .lookup-icon-descending-sort:before {
+    content: "\e902";
+  }
+  .lookup-icon-prev:before {
+    content: "\e903";
+  }
+  .lookup-icon-left-arrow:before {
+    content: "\e904";
+  }
+  .lookup-icon-right-arrow:before {
+    content: "\e905";
+  }
+  .lookup-icon-next:before {
+    content: "\e906";
+  }
+  .lookup-icon-ascending-sort:before {
+    content: "\e907";
+  }
+  .lookup-icon-successful-mark:before {
+    content: "\e908";
+  }
+  .lookup-icon-close-prompt:before {
+    content: "\e909";
+  }
+  .lookup-icon-warning:before {
+    content: "\e90a";
+  }
+  .lookup-icon-error:before {
+    content: "\e90b";
+  }
+  .lookup-icon-table-expanded:before {
+    content: "\e90c";
+  }
+  .lookup-icon-table-collapsed:before {
+    content: "\e90d";
+  }
+  .lookup-icon-delete:before {
+    content: "\e90e";
+  }
+  .lookup-icon-editable:before {
+    content: "\e90f";
+  }
+  .lookup-icon-draggable:before {
+    content: "\e910";
+  }
+  .lookup-icon-questionmark:before {
+    content: "\e911";
+  }
+  .lookup-icon-attachment:before {
+    content: "\e912";
+  }
+  .lookup-icon-table-ascending:before {
+    content: "\e913";
+  }
+  .lookup-icon-table-descending:before {
+    content: "\e914";
+  }
+  .lookup-icon-browse:before {
+    content: "\e915";
+  }
+  .lookup-icon-search:before {
+    content: "\e916";
+  }
+  .lookup-icon-wfilter:before {
+    content: "\e917";
+  }
+  .lookup-icon-Settings:before {
+    content: "\e918";
+  }
+  .lookup-icon-uniE919:before {
+    content: "\e919";
+  }
+  .lookup-icon-uniE91A:before {
+    content: "\e91a";
+  }
+  .lookup-icon-graph-chart:before {
+    content: "\e91b";
+  }
+  .lookup-icon-more-details:before {
+    content: "\e91c";
+  }
+  .lookup-icon-block:before {
+    content: "\e91d";
+  }
+  .lookup-icon-invalid:before {
+    content: "\e91e";
+  }
+  .lookup-icon-cleartext:before {
+    content: "\e91f";
+  }
+  .lookup-icon-caret-down:before {
+    content: "\e920";
+  }
+  .lookup-icon-scroll-up:before {
+    content: "\e921";
+  }
+  .lookup-icon-scroll-down:before {
+    content: "\e922";
+  }
+  .lookup-icon-drag:before {
+    content: "\e923";
+  }
+  .lookup-icon-drag-area:before {
+    content: "\e924";
+  }
+  .lookup-icon-more-filters:before {
+    content: "\e925";
+  }
+  .lookup-icon-leftpanel-arrow:before {
+    content: "\e926";
+  }
+  .lookup-icon-priority:before {
+    content: "\e927";
+  }
+  .lookup-icon-star-filled:before {
+    content: "\e928";
+  }
+  .lookup-icon-filter-applied:before {
+    content: "\e929";
+  }
+  .lookup-icon-mail:before {
+    content: "\e92a";
+  }
+  .lookup-icon-phone:before {
+    content: "\e92b";
+  }
+  .lookup-icon-broken-link:before {
+    content: "\e92c";
+  }
+  .lookup-icon-milestone:before {
+    content: "\e92d";
+  }
+  .lookup-icon-user-detail:before {
+    content: "\e92e";
+  }
+  .lookup-icon-birthday:before {
+    content: "\e92f";
+  }
+  .lookup-icon-mobile:before {
+    content: "\e930";
+  }
+  .lookup-icon-infoicon:before {
+    content: "\e931";
+  }
+  .lookup-icon-notes:before {
+    content: "\e932";
+  }
+  .lookup-icon-tickmark1:before {
+    content: "\e933";
+  }
+  .lookup-icon-close-box:before {
+    content: "\e934";
+  }
+  .lookup-icon-progress:before {
+    content: "\e935";
+  }
+  .lookup-icon-tickmark:before {
+    content: "\e936";
+  }
+  .lookup-icon-attach:before {
+    content: "\e937";
+  }
+  .lookup-icon-modal-close:before {
+    content: "\e938";
+  }
+  .lookup-icon-table-sort:before {
+    content: "\e939";
+  }
+  .lookup-icon-list:before {
+    content: "\e93a";
+  }
+  .lookup-icon-calander-edit:before {
+    content: "\e93b";
+  }
+  .lookup-icon-calander-check:before {
+    content: "\e93c";
+  }
+  .lookup-icon-text-editor:before {
+    content: "\e93d";
+  }
+  .lookup-icon-birthday1:before {
+    content: "\e93e";
+  }
+  .lookup-icon-folder:before {
+    content: "\e93f";
+  }
+  .lookup-icon-location:before {
+    content: "\e940";
+  }
+  .lookup-icon-healow:before {
+    content: "\e941";
+  }
+  .lookup-icon-alert-icon-red:before {
+    content: "\e942";
+  }
+  .lookup-icon-eye:before {
+    content: "\e943";
+  }
+  .lookup-icon-secure-message:before {
+    content: "\e944";
+  }
+  .lookup-icon-video-fill:before {
+    content: "\e945";
+  }
+  .lookup-icon-healow-connect:before {
+    content: "\e946";
+  }
+  .lookup-icon-close:before {
+    content: "\e947";
+  }
+  .lookup-icon-no-name:before {
+    content: "\e948";
+  }
+  .lookup-icon-cancel-circle:before {
+    content: "\ea0d";
+  }
+  .lookup-icon-users-group:before {
+    content: "\e949";
+    font-size: 16px;
+  }
+  .lookup-icon-star:before {
+    content: "\e94a";
+    font-size: 18px;
+  }
+  .lookup-icon-out-of-office-cricle:before {
+    content: "\e94b";
+    color: #9444fb;
+  }
+  .lookup-icon-star-fill .path1:before {
+    content: "\e94c";
+    font-size: 18px;
+    color: rgb(251, 206, 42);
+  }
+  .lookup-icon-star-fill .path2:before {
+    content: "\e94d";
+    font-size: 18px;
+    color: rgb(0, 0, 0);
+  }
+  .lookup-icon-green-check-circle:before {
+    content: "\e94e";
+    color: #00a364;
+  }
+
+  .lookup-icon-arrow-left:before {
+    content: "\e94f";
+    color: #fff;
+    font-size: 16px;
+  }

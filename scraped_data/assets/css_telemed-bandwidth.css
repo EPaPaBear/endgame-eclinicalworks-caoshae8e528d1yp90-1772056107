@@ -1,0 +1,116 @@
+/*VideoSignalDiv css start*/
+.VideoSignalDiv{
+    display: none;
+}
+.VideoSignalDiv .bottom-right {
+    right: 10px;
+    bottom: 5px;
+    position: absolute;
+    border-radius: 50%;
+    display: inline;
+    cursor: pointer;
+    z-index: 1;
+    opacity: 0.8;
+}
+.VideoSignalDiv .top-right {
+    right: 2px;
+    top: 2px;
+    position: absolute;
+    border-radius: 50%;
+    display: inline-block;
+    cursor: pointer;
+    z-index: 1;
+    opacity: 0.8;
+
+}
+
+.VideoSignalDiv .icon-video-signal-strength-red{
+    background: url(/mobiledoc/jsp/webemr/telemed/bandwidth/img/icon-video-signal-red.png)no-repeat;
+    width: 25px;
+    height: 25px;
+    display: inline-block;
+    vertical-align: middle;
+}
+.VideoSignalDiv .icon-video-signal-strength-green{
+    /*background-color: green;*/
+    background: url(/mobiledoc/jsp/webemr/telemed/bandwidth/img/icon-video-signal-green.png)no-repeat;
+    width: 25px;
+    height: 25px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.VideoSignalDiv .subscribertooltip .subscribertooltiptext {
+    visibility: hidden;
+    width: 170px;
+    background-color: #FFFFff;
+    text-align: left;
+    border-radius: 6px;
+    position: absolute;
+    bottom: 152%;
+    right: 0;
+    transition: opacity 0.3s;
+    padding: 5px 5px 5px 10px;
+    opacity: 0.8;
+}
+.VideoSignalDiv .subscribertooltip .subscribertooltiptext .titleColumn{
+    color: #000000 !important;
+}
+.VideoSignalDiv .subscribertooltip .subscribertooltiptext .valueColumn{
+    color: #000000 !important;
+    font-weight: bold;
+    padding-right: 0px;
+    padding-left: 0px;
+}
+.VideoSignalDiv .subscribertooltip .subscribertooltiptext::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #FFFFff transparent transparent transparent;
+    right: 5px;
+}
+
+.VideoSignalDiv:hover .subscribertooltip:hover .subscribertooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
+.VideoSignalDiv .publishertooltip .publishertooltiptext {
+    visibility: hidden;
+    width: 170px;
+    background-color: #FFFFff;
+    text-align: left;
+    border-radius: 6px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: -35px;
+    transition: opacity 0.3s;
+    padding: 5px 5px 5px 10px;
+    opacity: 0.8;
+}
+.VideoSignalDiv .publishertooltip .publishertooltiptext .titleColumn{
+    color: #000000 !important;
+}
+.VideoSignalDiv .publishertooltip .publishertooltiptext .valueColumn{
+    color: #000000 !important;
+    font-weight: bold;
+    padding-right: 0px;
+    padding-left: 0px;
+}
+.VideoSignalDiv .publishertooltip .publishertooltiptext::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 40px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #FFFFff transparent transparent transparent;
+}
+
+.VideoSignalDiv:hover .publishertooltip:hover .publishertooltiptext {
+    visibility: visible;
+    opacity: 1;
+}

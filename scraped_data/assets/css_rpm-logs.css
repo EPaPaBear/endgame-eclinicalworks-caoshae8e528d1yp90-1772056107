@@ -1,0 +1,323 @@
+/*rpm logs*/
+.rpmlogsmodal .obtel {
+    background: url(../../img/ob-sprite.png) -189px -10px no-repeat !important;
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    vertical-align: middle;
+}
+
+.rpmlogsmodal .smallmb {
+    background: url(../../img/smallmb.png) no-repeat;
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    vertical-align: middle;
+}
+
+.rpmlogsmodal .lineheight {
+    border-right: 1px solid #d8d8d8;
+}
+
+.rpmlogsmodal .icon-inputcalender {
+    background: url(../../img/calender-icon.png) no-repeat;
+    width: 15px;
+    height: 17px;
+    cursor: pointer;
+}
+
+.rpmlogsmodal .icon-greysearch {
+    background: url(../../img/search_icn.png) no-repeat;
+    width: 15px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.rpmlogsmodal .det-view .form-group input[type="text"] {
+    height: 24px;
+    min-height: 24px !important;
+    box-shadow: none;
+}
+
+.rpmlogsmodal .mt-3 {
+    margin-top: -3px;
+}
+
+.rpmlogsmodal .fnt12boldtext {
+    font: 600 12px 'Open Sans', 'sans-serif';
+    color: #000;
+}
+
+.rpmlogsmodal .fnt11greytxt {
+    font: 400 11px 'Open Sans', 'sans-serif';
+    color: #7b7b7b;
+}
+
+.rpmlogsmodal .simpleTable tbody tr td.bluebgtd ,
+.bluebgtd{
+    background: #f6fcff !important;
+    border-top: none;
+    border-bottom: 2px solid #ddd !important;
+}
+
+.rpmlogsmodal .simpleTable .table-bordered>thead>tr>td {
+    border-bottom-width: 1px;
+    background: #fff;
+}
+
+.rpmlogsmodal .footer-wrapper .footer-input {
+    height: 20px !important;
+    border-color: #dddddd;
+    border-radius: 2px;
+    width: 35px;
+    padding: 1px 2px !important;
+    text-align: center;
+    float: left;
+    margin: 0 5px;
+}
+
+.rpmlogsmodal .footer-wrapper .btn-lgrey {
+    background: #f9f9f9;
+    border-color: #c4c4c4;
+    padding: 0px 5px !important;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    height: 20px;
+    margin-top: 0px;
+}
+
+.rpmlogsmodal .footer-wrapper .iconprev {
+    background: url(../../img/left-doublearrow.png) no-repeat !important;
+    width: 12px;
+    height: 11px;
+    display: inline-block;
+    margin: 0;
+}
+
+.rpmlogsmodal .footer-wrapper .icon-lefttarrow {
+    background: url(../../img/left-singlearrow.png) no-repeat !important;
+    width: 6px;
+    height: 11px;
+    display: inline-block;
+    margin: 0;
+}
+
+.rpmlogsmodal .footer-wrapper .iconnext {
+    background: url(../../img/right-singlearrow.png) no-repeat !important;
+    width: 6px;
+    height: 11px;
+    display: inline-block;
+    margin: 0;
+}
+
+.rpmlogsmodal .footer-wrapper .iconrightarrow {
+    background: url(../../img/right-doublearrow.png) no-repeat !important;
+    width: 12px;
+    height: 11px;
+    display: inline-block;
+    margin: 0;
+}
+
+.rpmlogsmodal .footer-wrapper .btn-lgrey:hover,
+.rpmlogsmodal .footer-wrapper .btn-grey:hover {
+    background: #fff;
+}
+
+.rpmlogsmodal .footer-wrapper .btn-grey {
+    border-color: #cecece;
+    background: #ededed;
+    padding: 0px 5px !important;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    height: 20px;
+    margin-top: 0px;
+}
+
+.modal-footer .icondownload {
+    background: url(../../img/download-img.png) no-repeat !important;
+    width: 17px;
+    height: 17px;
+}
+
+.modal-footer .iconprint {
+    background: url(../../img/printimg.png) no-repeat !important;
+    width: 15px;
+    height: 15px;
+}
+
+.modal-footer .btn-sm.btnsmall {
+    width: 25px !important;
+    height: 25px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 4px !important;
+}
+
+.rpmlogsmodal .rpmlogtable {
+    height: 402px;
+    position: relative;
+    background: transparent;    
+}
+.rpmlogsmodal .enrolltable .rpmlogtable {
+    background: #f5f5f4;  
+}
+
+.rpmlogsmodal .linebrdrleft {
+    border-left: 1px solid #e7eaeb;
+}
+
+.rpmlogsmodal .linebrdrrgt {
+    border-right: 1px solid #e7eaeb;
+}
+
+.rpmlogsmodal .simpleTable .table-bordered>tbody>tr>td {
+    line-height: 16px;
+    padding: 8px 8px;
+}
+.custom-modal.w1000 .modal-dialog {
+    width: 1000px;
+  }
+.custom-modal.w1330 .modal-dialog {
+    width: 1330px;
+}
+.rpmlogsmodal .leftsection {
+    width: 51.4% !important;
+}
+.rpmlogsmodal .rightsection {
+    width: 48.6% !important;
+}
+.rpmlogsmodal .w51p {
+    width: 51% !important;
+}
+.rpmlogsmodal .w49p {
+    width: 49% !important;
+}
+.rpmlogsmodal .w40-p {
+    width: 40.6% !important;
+}
+.rpmlogsmodal .w57p {
+    width: 57.6% !important;
+}
+.blue-fade-table > thead > tr > th:first-child {
+    padding-left: 8px !important;
+}
+.rpmlogsmodal .det-view .form-group .customdate input[type="text"] {
+    width: 90px;
+}
+
+.rpmlogsmodal .w20-p {
+    width: 20% !important;
+}
+.pad-left-8px {
+    padding-left:8px !important;
+}
+.calendar-fix{
+    z-index: 1061 !important;
+}
+
+#dateRangeFilter button {
+    padding: 0px 3px 0px 2px;
+    background: transparent;
+    border: 1px solid darkgrey;
+}
+
+
+@media screen {
+    #printSection {
+        display: none;
+    }
+}
+@media print {
+    body,html{
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+    }
+    body * {
+        visibility:hidden;
+        font-size: 10px;
+        color:black !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        background: none !important;
+        box-shadow: none !important;
+    }
+
+    #printSection, #printSection * {
+        visibility:visible !important;
+        color: black !important;
+        background: white !important;
+        box-shadow: none !important;
+    }
+    #printSection {
+        position:absolute;
+        left:0;
+        right: 0;
+        top:0;
+        zoom: 100%;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+    }
+    .col-sm-1, .col-sm-2, .col-sm-3, .col-sm-4, .col-sm-5,
+    .col-sm-6, .col-sm-7, .col-sm-8, .col-sm-9, .col-sm-10,
+    .col-sm-11, .col-sm-12 {float: left;}
+    .col-sm-3 {width: 25%;}
+    .col-sm-6 {width: 50%;}
+    .col-sm-12 {width: 100%;}
+    .nopadding {padding: 0 !important;}
+    #print-identifier{visibility: visible; padding-bottom: 20px;}
+}
+
+#print-identifier{
+    visibility: hidden;
+    height: 0;
+}
+.icon-printer {
+    background: url('../../img/icon-printer.png') no-repeat;
+    width: 15px;
+    height: 15px;
+    display: inline-block;
+    margin-top: -4px;
+}
+.rpm-logs-footer input::-webkit-outer-spin-button,
+.rpm-logs-footer input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.rpmlogsmodal .align-log-content {
+    width: 110px;
+    display: inline-block;
+}
+.rpmlogsmodal .rpm-normal-whitespace {
+    white-space: normal;
+}
+.rpmlogsmodal .border-top-device-readings {
+    border-top: 1px solid #ddd;
+}
+
+.rpm-show-on-print-only {
+    display : none;
+}
+
+@media print {
+    .rpm-show-on-print-only {
+        display : block;
+    }
+    .rpm-hide-on-print {
+        display : none;
+    }
+}
+
+#logs-loader-block{position:relative; height:calc(100vh - 40px); background:#e888420d; text-align:center; display:none;}
+#logs-loader-block #logs-loader{position: absolute; top: 35%; left: 50%; height: 77px; transform: translate(-50%, -75%); background:url('/mobiledoc/jsp/webemr/img/loader.gif') no-repeat center top; background-size:50px;}
+#logs-loader-block #logs-loader span{font-family: 'Open Sans', sans-serif; font-size: 12px; font-weight: bolder; display: inherit; color: #000; margin-top: 60px;}
+.rpmlogsmodal .cursor-disabled{
+   cursor:not-allowed !important;
+}
+.custom-modal.zIndex {
+    z-index: 1060 !important;
+}

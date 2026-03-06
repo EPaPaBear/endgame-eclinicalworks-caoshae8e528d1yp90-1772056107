@@ -1,0 +1,302 @@
+@font-face {
+    font-family: 'healow-icons';
+    src:  url('/mobiledoc/jsp/webemr/telemed/healownow/fonts/healownow-icons/healow-icons.eot?lio7dd');
+    src:  url('/mobiledoc/jsp/webemr/telemed/healownow/fonts/healownow-icons/healow-icons.eot?lio7dd#iefix') format('embedded-opentype'),
+    url('/mobiledoc/jsp/webemr/telemed/healownow/fonts/healownow-icons/healow-icons.ttf?lio7dd') format('truetype'),
+    url('/mobiledoc/jsp/webemr/telemed/healownow/fonts/healownow-icons/healow-icons.woff?lio7dd') format('woff'),
+    url('/mobiledoc/jsp/webemr/telemed/healownow/fonts/healownow-icons/healow-icons.svg?lio7dd#healow-icons') format('svg');
+    font-weight: normal;
+    font-style: normal;
+    font-display: block;
+}
+
+[class^="healow-icon-"], [class*=" healow-icon-"] {
+    /* use !important to prevent issues with browser extensions that change fonts */
+    font-family: 'healow-icons' !important;
+    speak: never;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+
+    /* Better Font Rendering =========== */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.healow-icon-dots-horizontal:before {
+    content: "\e900";
+}
+
+.healow-icon-ab-check:before {
+    content: "\e901";
+}
+
+.healow-icon-add:before {
+    content: "\e902";
+}
+
+.healow-icon-age:before {
+    content: "\e903";
+}
+
+.healow-icon-alert-input-form:before {
+    content: "\e904";
+}
+
+.healow-icon-calendar:before {
+    content: "\e905";
+}
+
+.healow-icon-call:before {
+    content: "\e906";
+}
+
+.healow-icon-caret-down:before {
+    content: "\e907";
+}
+
+.healow-icon-caret-up:before {
+    content: "\e908";
+}
+
+.healow-icon-check:before {
+    content: "\e909";
+}
+
+.healow-icon-chevron-down:before {
+    content: "\e90a";
+}
+
+.healow-icon-chevron-left:before {
+    content: "\e90b";
+}
+
+.healow-icon-chevron-right:before {
+    content: "\e90c";
+}
+
+.healow-icon-clipboard-with-check:before {
+    content: "\e90d";
+}
+
+.healow-icon-clock:before {
+    content: "\e90e";
+}
+
+.healow-icon-close:before {
+    content: "\e90f";
+}
+
+.healow-icon-close-bold:before {
+    content: "\e910";
+}
+
+.healow-icon-confirmation-toast:before {
+    content: "\e911";
+}
+
+.healow-icon-copy:before {
+    content: "\e912";
+}
+
+.healow-icon-fax:before {
+    content: "\e913";
+}
+
+.healow-icon-filter:before {
+    content: "\e914";
+}
+
+.healow-icon-folder:before {
+    content: "\e915";
+}
+
+.healow-icon-healow:before {
+    content: "\e916";
+}
+
+.healow-icon-medium:before {
+    content: "\e917";
+}
+
+.healow-icon-high:before {
+    content: "\e918";
+}
+
+.healow-icon-Consentform:before {
+    content: "\e919";
+}
+
+.healow-icon-insurance-balance:before {
+    content: "\e91a";
+}
+
+.healow-icon-location:before {
+    content: "\e91b";
+}
+
+.healow-icon-medicine:before {
+    content: "\e91c";
+}
+
+.healow-icon-chat:before {
+    content: "\e91d";
+}
+
+.healow-icon-consent:before {
+    content: "\e91e";
+}
+
+.healow-icon-history:before {
+    content: "\e91f";
+}
+
+.healow-icon-minus:before {
+    content: "\e920";
+}
+
+.healow-icon-modal-close:before {
+    content: "\e921";
+}
+
+.healow-icon-next:before {
+    content: "\e922";
+}
+
+.healow-icon-previous:before {
+    content: "\e923";
+}
+
+.healow-icon-question:before {
+    content: "\e924";
+}
+
+.healow-icon-refresh:before {
+    content: "\e925";
+}
+
+.healow-icon-reorder-ascending:before {
+    content: "\e926";
+}
+
+.healow-icon-reorder-descending:before {
+    content: "\e927";
+}
+
+.healow-icon-search:before {
+    content: "\e928";
+}
+
+.healow-icon-settings:before {
+    content: "\e929";
+}
+
+.healow-icon-outline-user:before {
+    content: "\e92a";
+}
+
+.healow-icon-sort:before {
+    content: "\e92b";
+}
+
+.healow-icon-star:before {
+    content: "\e92c";
+}
+
+.healow-icon-time:before {
+    content: "\e92d";
+}
+
+.healow-icon-timer:before {
+    content: "\e92e";
+}
+
+.healow-icon-user:before {
+    content: "\e92f";
+}
+
+.healow-icon-video:before {
+    content: "\e930";
+}
+
+.healow-icon-check-outline:before {
+    content: "\e931";
+}
+
+.healow-icon-prescription:before {
+    content: "\e932";
+}
+
+.healow-icon-sms:before {
+    content: "\e933";
+}
+
+.healow-icon-vitals:before {
+    content: "\e934";
+}
+
+.healow-icon-clr:before {
+    content: "\e935";
+}
+
+.healow-icon-medicine1:before {
+    content: "\e936";
+}
+
+.healow-icon-image:before {
+    content: "\e937";
+}
+
+.healow-icon-EMR:before {
+    content: "\e938";
+}
+
+.healow-icon-desktop:before {
+    content: "\e939";
+}
+
+.healow-icon-add-user:before {
+    content: "\e93a";
+}
+
+.healow-icon-healowNOW:before {
+    content: "\e93b";
+}
+
+.healow-icon-alert:before {
+    content: "\e93c";
+}
+
+.healow-icon-right-arrow:before {
+    content: "\e93d";
+}
+
+.healow-icon-closed-mail-outline:before {
+    content: "\e93e";
+}
+
+.healow-icon-tele-med:before {
+    content: "\e93f";
+}
+
+.healow-icon-numpad:before {
+    content: "\e940";
+}
+
+.healow-icon-no-show:before {
+    content: "\e941";
+}
+
+.healow-icon-e-message:before {
+    content: "\e942";
+}
+
+.healow-icon-unavailable:before {
+    content: "\e943";
+}
+
+.healow-icon-phone-no-show:before {
+    content: "\e944";
+}
