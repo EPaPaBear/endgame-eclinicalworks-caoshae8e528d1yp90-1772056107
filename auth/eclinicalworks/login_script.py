@@ -24,7 +24,6 @@ import os
 import re
 import time
 import urllib.request
-import urllib.parse
 from datetime import datetime
 
 import httpx
@@ -34,9 +33,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 BASE_URL = "https://caoshae8e528d1yp90app.ecwcloud.com"
-MAILGUN_DOMAIN = "inbox.integuru.ai"
 
-# 2captcha key (ASCII85 encoded) â€” used only if Turnstile is enforced
+# 2captcha key (ASCII85 encoded) — used only if Turnstile is enforced
 _CAPTCHA_KEY_ENC = "1cREP11Xm)2e-8OAMZ;(AiDDU@qIGU2DI.!2dp/U"
 
 
@@ -64,7 +62,7 @@ def _aes_gcm_encrypt(data: str, key_b64: str, iv_b64: str) -> str:
 
 
 def _hash_password(pw: str) -> str:
-    """Password hash chain: SHA1(MD5(plaintext)) â€” both return lowercase hex."""
+    """Password hash chain: SHA1(MD5(plaintext)) — both return lowercase hex."""
     return hashlib.sha1(hashlib.md5(pw.encode()).hexdigest().encode()).hexdigest()
 
 
@@ -128,91 +126,6 @@ def _solve_turnstile(site_key: str, page_url: str) -> str:
 
 
 # =============================================================================
-# MAILGUN 2FA
-# =============================================================================
-
-def _poll_mailgun(email_address: str, mailgun_api_key: str, timeout: int = 120, interval: int = 5) -> dict:
-    """
-    Poll Mailgun accepted events for incoming email to the given address.
-    Only considers emails that arrive AFTER this function is called (prevents
-    stale confirm URLs from previous runs).
-    Returns dict with 'otp' (if found), 'confirm_url' (if found), 'subject', 'body'.
-    """
-    start = time.time()
-    seen_ids = set()
-
-    while time.time() - start < timeout:
-        url = f"https://api.mailgun.net/v3/{MAILGUN_DOMAIN}/events?event=accepted&recipient={email_address}&limit=5"
-        req = urllib.request.Request(url)
-        credentials = base64.b64encode(f"api:{mailgun_api_key}".encode()).decode()
-        req.add_header("Authorization", f"Basic {credentials}")
-
-        try:
-            resp = json.loads(urllib.request.urlopen(req, timeout=15).read())
-        except Exception:
-            time.sleep(interval)
-            continue
-
-        items = resp.get("items", [])
-        for item in items:
-            msg_id = item.get("message", {}).get("headers", {}).get("message-id", "")
-            if msg_id in seen_ids:
-                continue
-
-            # Only accept emails that arrived AFTER we started polling
-            ts = item.get("timestamp", 0)
-            if ts < start:
-                seen_ids.add(msg_id)
-                continue
-
-            # Fetch the stored message
-            storage_url = item.get("storage", {}).get("url", "")
-            if not storage_url:
-                seen_ids.add(msg_id)
-                continue
-
-            msg_req = urllib.request.Request(storage_url)
-            msg_req.add_header("Authorization", f"Basic {credentials}")
-            try:
-                msg_data = json.loads(urllib.request.urlopen(msg_req, timeout=15).read())
-            except Exception:
-                seen_ids.add(msg_id)
-                continue
-
-            subject = msg_data.get("subject", "")
-            body = msg_data.get("body-plain", "") or msg_data.get("stripped-text", "")
-            body_html = msg_data.get("body-html", "")
-
-            # Extract 6-digit OTP code
-            otp_match = re.search(r'\b(\d{6})\b', body)
-            otp = otp_match.group(1) if otp_match else None
-
-            # Extract confirmation URL â€” look for the "Yes" link (verifyEmailNSMS)
-            confirm_url = None
-            # In HTML: the "Yes, it's me" link precedes the "No" link
-            # The "Yes" JWT contains isConfirm:"yes", the "No" JWT contains isConfirm:"no"
-            # Match the first verifyEmailNSMS URL (which is the "Yes" one)
-            for pattern in [
-                r'href="(https?://[^"]+verifyEmailNSMS\?token=[^"]+)"',
-                r'(https?://[^\s"<>]+verifyEmailNSMS\?token=[^\s"<>]+)',
-                r'(https?://[^\s"<>]+(?:confirm|verify|approve)[^\s"<>]*)',
-            ]:
-                url_match = re.search(pattern, body_html or body, re.I)
-                if url_match:
-                    confirm_url = url_match.group(1)
-                    break
-
-            if otp or confirm_url:
-                return {"otp": otp, "confirm_url": confirm_url, "subject": subject, "body": body[:500]}
-
-            seen_ids.add(msg_id)
-
-        time.sleep(interval)
-
-    raise Exception(f"No 2FA email received within {timeout}s for {email_address}")
-
-
-# =============================================================================
 # LOGIN
 # =============================================================================
 
@@ -221,13 +134,9 @@ def login(username: str, password: str) -> dict:
     Authenticate against eClinicalWorks and return flat dict of HTTP headers.
 
     Backend contract: login(username, password) -> dict
-    2FA: Uses fetch_2fa_code() if available (injected by backend), falls back to
-         direct mailgun polling via MAILGUN_API_KEY env var.
+    2FA: Calls fetch_2fa_code() which returns either a numeric code or a
+         confirmation URL (magic link). Dispatches accordingly.
     """
-    # Resolve mailgun API key from environment (fallback for local testing)
-    mailgun_key = os.environ.get("MAILGUN_API_KEY", "")
-    # Account-specific 2FA email â€” backend sets this, or derive from env
-    twofa_email = os.environ.get("TWOFA_EMAIL", "")
 
     headers_common = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -238,7 +147,13 @@ def login(username: str, password: str) -> dict:
 
     with httpx.Client(timeout=30.0, follow_redirects=False, headers=headers_common) as client:
 
-        # â”€â”€ Step 1: GET login page â”€â”€
+        # Seed persistent cookies (e.g. eCW_ULO trusted device token) to skip 2FA
+        try:
+            seed_cookies(client)
+        except NameError:
+            pass  # standalone mode, no seed_cookies injected
+
+        # ── Step 1: GET login page ──
         print("[1/9] Loading login page...")
         r = client.get(f"{BASE_URL}/mobiledoc/jsp/webemr/login/newLogin.jsp")
         if r.status_code != 200:
@@ -248,14 +163,14 @@ def login(username: str, password: str) -> dict:
             raise Exception("CSRF token not found")
         print(f"  CSRF: {csrf[:20]}...")
 
-        # â”€â”€ Step 2: GET RSA public key â”€â”€
+        # ── Step 2: GET RSA public key ──
         print("[2/9] Fetching RSA key...")
         r = client.get(f"{BASE_URL}/mobiledoc/jsp/webemr/login/authenticate/getRsaPublicKey")
         rsa_key = r.json().get("publicKey", "")
         if not rsa_key:
             raise Exception("RSA key not returned")
 
-        # â”€â”€ Step 3: Register AES-GCM key â”€â”€
+        # ── Step 3: Register AES-GCM key ──
         print("[3/9] Registering AES key...")
         aes_key, aes_iv = _gen_aes()
         enc_key = _rsa_encrypt(aes_key, rsa_key)
@@ -268,7 +183,7 @@ def login(username: str, password: str) -> dict:
         if r.text.strip() != "success":
             raise Exception(f"AES key registration failed: {r.text.strip()}")
 
-        # â”€â”€ Step 4: Verify username â”€â”€
+        # ── Step 4: Verify username ──
         print("[4/9] Verifying username...")
         enc_user = _aes_gcm_encrypt(username, aes_key, aes_iv)
         r = client.post(
@@ -298,7 +213,7 @@ def login(username: str, password: str) -> dict:
             err_msg = _extract_var(step2_html, "newLogin_errMsg") or f"Error {err_code}"
             raise Exception(f"Username error: {err_msg}")
 
-        # â”€â”€ Step 5: Solve Turnstile if enforced â”€â”€
+        # ── Step 5: Solve Turnstile if enforced ──
         turnstile_flag = _extract_var(step2_html, "newLogin_strCloudFlareTurnstileEnable")
         sitekey = _extract_var(step2_html, "newLogin_cloudFlareSiteKey")
         turnstile_token = ""
@@ -310,7 +225,7 @@ def login(username: str, password: str) -> dict:
         else:
             print("[5/9] Turnstile not enforced, skipping")
 
-        # â”€â”€ Step 6: Re-register AES key for step 2 â”€â”€
+        # ── Step 6: Re-register AES key for step 2 ──
         print("[6/9] Re-registering AES key...")
         aes_key, aes_iv = _gen_aes()
         enc_key = _rsa_encrypt(aes_key, rsa_key)
@@ -323,7 +238,7 @@ def login(username: str, password: str) -> dict:
         if r.text.strip() != "success":
             raise Exception(f"AES re-registration failed: {r.text.strip()}")
 
-        # â”€â”€ Step 7: Submit password â”€â”€
+        # ── Step 7: Submit password ──
         print("[7/9] Submitting password...")
         hashed_pw = _hash_password(password)
         enc = lambda d: _aes_gcm_encrypt(d, aes_key, aes_iv)
@@ -372,20 +287,11 @@ def login(username: str, password: str) -> dict:
         final_url = str(r.url)
         print(f"  Final: {final_url} ({r.status_code})")
 
-        # â”€â”€ Step 8: Handle 2FA â”€â”€
+        # ── Step 8: Handle 2FA ──
         if "OTPVerification" in final_url or "loginSuccess" in final_url:
             print(f"[8/9] 2FA required (final status {r.status_code})")
             otp_html = r.text if r.status_code == 200 else ""
             otp_csrf = _extract_csrf(otp_html) if otp_html else ""
-
-            if not twofa_email or not mailgun_key:
-                raise Exception(
-                    "2FA required but no mailgun config. "
-                    f"Set MAILGUN_API_KEY env var. twofa_email={twofa_email}"
-                )
-
-            print(f"  Polling mailgun for email to {twofa_email}...")
-            email_data = _poll_mailgun(twofa_email, mailgun_key, timeout=120, interval=5)
 
             # Extract userId from OTP page for checkSecureToken polling
             user_id = ""
@@ -393,17 +299,18 @@ def login(username: str, password: str) -> dict:
                 uid_match = re.search(r'var\s+userId\s*=\s*(\d+)', otp_html)
                 user_id = uid_match.group(1) if uid_match else ""
 
-            if email_data.get("confirm_url"):
+            # fetch_2fa_code() returns either a numeric code or a confirmation URL
+            print("  Waiting for 2FA response...")
+            twofa_response = fetch_2fa_code(timeout_seconds=120)
+            print(f"  2FA response: {twofa_response[:80]}...")
+
+            if twofa_response.startswith("http"):
                 # Push notification flow: visit the confirm URL from a SEPARATE
                 # client (no session cookies). The login session must NOT visit
-                # this URL â€” it invalidates the session. Instead, confirm externally
-                # and poll checkSecureToken from the login session.
-                confirm_url = email_data["confirm_url"]
-                print(f"  Found confirm URL: {confirm_url[:80]}...")
-
-                # Confirm from a separate HTTP client (no login cookies)
-                confirm_r = httpx.get(confirm_url, follow_redirects=True, timeout=15)
-                print(f"  Confirm response (external): {confirm_r.status_code}")
+                # this URL — it invalidates the session.
+                print(f"  Confirming via magic link (external client)...")
+                confirm_r = httpx.get(twofa_response, follow_redirects=True, timeout=15)
+                print(f"  Confirm response: {confirm_r.status_code}")
 
                 # Poll checkSecureToken from the login session
                 if user_id:
@@ -435,7 +342,6 @@ def login(username: str, password: str) -> dict:
                     f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
                     headers={"Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/login/OTPVerification.jsp"},
                 )
-                # Follow redirects
                 for _ in range(10):
                     if r.status_code not in (301, 302, 303, 307, 308):
                         break
@@ -447,10 +353,10 @@ def login(username: str, password: str) -> dict:
                     r = client.get(url, headers={"Referer": post_url})
                 print(f"  Dashboard: {r.status_code} -> {r.url}")
 
-            elif email_data.get("otp"):
-                # OTP code flow: submit the 6-digit code
-                otp_code = email_data["otp"]
-                print(f"  Found OTP code: {otp_code}")
+            else:
+                # OTP code flow: submit the numeric code
+                otp_code = twofa_response
+                print(f"  Submitting OTP code: {otp_code}")
 
                 otp_form_action = _extract_form_action(otp_html, "OTPForm") if otp_html else ""
                 if not otp_form_action:
@@ -466,7 +372,6 @@ def login(username: str, password: str) -> dict:
                     "Referer": final_url,
                 })
 
-                # Follow redirects after OTP submission
                 for _ in range(10):
                     if r.status_code not in (301, 302, 303, 307, 308):
                         break
@@ -477,14 +382,11 @@ def login(username: str, password: str) -> dict:
                     print(f"  -> {r.status_code} {url}")
                     r = client.get(url)
 
-            else:
-                raise Exception("No OTP code or confirm URL found in email")
-
             final_url = str(r.url)
         else:
             print("[8/9] No 2FA required")
 
-        # â”€â”€ Step 9: Extract session headers â”€â”€
+        # ── Step 9: Extract session headers ──
         print("[9/9] Extracting session headers...")
 
         # Build Cookie header from all cookies in the jar
@@ -513,5 +415,5 @@ def login(username: str, password: str) -> dict:
 
 
 def determine_base_url(username: str, password: str) -> str:
-    """Return the post-login base URL for this tenant (static â€” no login needed)."""
+    """Return the post-login base URL for this tenant (static — no login needed)."""
     return BASE_URL

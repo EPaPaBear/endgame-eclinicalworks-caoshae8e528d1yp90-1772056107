@@ -76,6 +76,17 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
         elif action == "read-combos":
             return get_demographics_combos(client, session, patient_id)
 
+        elif action == "read-lrte":
+            option = input_data.get("option", "")
+            search = input_data.get("search", "")
+            if option == "language":
+                return {"languages": search_languages(client, session, search)}
+            elif option == "race":
+                return {"races": get_race_list(client, session)}
+            else:
+                return {"status_code": 400,
+                        "body": {"error": "option must be 'language' or 'race'"}}
+
         elif action == "read-sliding-fee":
             return get_sliding_fee_schedule(client, session, patient_id)
 
@@ -133,15 +144,56 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "income_data dict is required"}}
             return edit_income(client, session, patient_id, income_data)
 
+        elif action == "get-parent-info":
+            return get_parent_info(client, session, patient_id)
+
+        elif action == "save-parent-info":
+            parent_data = input_data.get("parent_info", {})
+            if not parent_data:
+                return {"status_code": 400,
+                        "body": {"error": "parent_info dict is required"}}
+            return save_parent_info(client, session, patient_id, parent_data)
+
+        elif action == "get-sogi":
+            return get_sogi(client, session, patient_id)
+
+        elif action == "save-sogi":
+            return save_sogi(client, session, patient_id, input_data)
+
+        elif action == "search-guarantor":
+            search = input_data.get("search", "")
+            lastname, firstname = "", ""
+            if "," in search:
+                parts = search.split(",", 1)
+                lastname, firstname = parts[0].strip(), parts[1].strip()
+            else:
+                lastname = search.strip()
+            search_type = input_data.get("type", "patient")
+            if search_type == "guarantor":
+                return {"guarantors": search_guarantors(
+                    client, session, lastname, firstname)}
+            return {"patients": search_patients(
+                client, session, lastname, firstname)}
+
+        elif action == "get-guarantor-info":
+            gr_id = input_data.get("gr_id", "")
+            if not gr_id:
+                return {"status_code": 400,
+                        "body": {"error": "gr_id is required"}}
+            return get_guarantor_info(client, session, gr_id)
+
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
                              "valid_actions": [
                                  "read", "edit-demographics", "read-combos",
-                                 "read-sliding-fee", "calculate",
+                                 "read-lrte", "read-sliding-fee", "calculate",
                                  "search-provider", "get-contacts",
                                  "add-contact", "update-contact",
                                  "set-responsible-party", "edit-income",
+                                 "get-parent-info", "save-parent-info",
+                                 "get-sogi", "save-sogi",
+                                 "search-guarantor", "get-guarantor-info",
                              ]}}
 
 
@@ -582,6 +634,135 @@ def save_demographics_tab2(client: requests.Session, session: dict,
     return {"status_code": r.status_code, "body": r.text[:500]}
 
 
+# ── WRITE: Language / Race (LRTE REST endpoints) ─────────────────────────────
+
+RACE_LOOKUP = {
+    "white": ("2106-3", 1043),
+    "asian": ("2028-9", 1749),
+    "black or african american": ("2054-5", 1044),
+    "american indian or alaska native": ("1002-5", 1042),
+    "native hawaiian or other pacific islander": ("2076-8", 1805),
+}
+
+LANGUAGE_LOOKUP = {
+    "english": ("en", 74),
+    "spanish": ("es", 196),
+    "french": ("fr", 234),
+    "chinese": ("zh", 48),
+    "vietnamese": ("vi", 224),
+    "korean": ("ko", 120),
+    "portuguese": ("pt", 169),
+    "arabic": ("ar", 14),
+    "russian": ("ru", 179),
+    "tagalog": ("tl", 210),
+    "german": ("de", 62),
+    "japanese": ("ja", 113),
+    "hindi": ("hi", 92),
+}
+
+
+def _resolve_race(race_str: str, client=None, session=None) -> dict:
+    key = race_str.strip().lower()
+    code, rid = RACE_LOOKUP.get(key, ("", 0))
+    if not code and client and session:
+        races = get_race_list(client, session)
+        for r in races:
+            if r.get("name", "").lower() == key:
+                return {"name": r["name"], "code": r.get("code", ""),
+                        "id": r.get("id", 0), "source": r.get("source", "System-Defined (CDC)"),
+                        "uiFlag": 1, "checked": True}
+    return {"name": race_str.strip(), "code": code, "id": rid,
+            "source": "System-Defined (CDC)", "uiFlag": 1, "checked": True}
+
+
+def _resolve_language(lang_str: str, client=None, session=None) -> tuple:
+    key = lang_str.strip().lower()
+    code, lid = LANGUAGE_LOOKUP.get(key, ("", 0))
+    if not code and client and session:
+        results = search_languages(client, session, lang_str.strip())
+        for r in results:
+            if r.get("name", "").lower() == key:
+                return r["name"], r.get("code", ""), r.get("id", 0)
+    return lang_str.strip(), code, lid
+
+
+def search_languages(client: requests.Session, session: dict,
+                     search: str = "") -> list:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/get-language-list", session)
+    payload = {"counter": 1, "name": search, "code": "", "mappedValue": "",
+               "source": "All", "pin": "All", "sortOrder": "ASC"}
+    r = client.post(url, json=payload, headers=hdrs)
+    r.raise_for_status()
+    data = r.json()
+    return data.get("result", {}).get("LanguageList", [])
+
+
+def get_race_list(client: requests.Session, session: dict) -> list:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/getLRTEData?counter=1", session)
+    r = client.post(url, headers=hdrs)
+    r.raise_for_status()
+    data = r.json()
+    return data.get("RaceObject", {}).get("result", {}).get("RaceList", [])
+
+
+def save_language(client: requests.Session, session: dict,
+                  patient_id: str, language_name: str,
+                  language_code: str = "", language_id: int = 0,
+                  translator: int = 0) -> dict:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/language/save", session)
+    payload = {
+        "patientId": str(patient_id),
+        "declineToSpecify": 0,
+        "selectedValueList": [{
+            "id": language_id,
+            "mappedId": 0,
+            "name": language_name,
+            "code": language_code,
+            "mappedValue": language_name,
+            "source": "System-Defined",
+            "uiFlag": 1,
+            "favorite": 0,
+            "checked": True,
+        }],
+        "translator": translator,
+    }
+    r = client.post(url, json=payload, headers=hdrs)
+    r.raise_for_status()
+    return r.json() if r.text.strip() else {"status_code": r.status_code}
+
+
+def save_race(client: requests.Session, session: dict,
+              patient_id: str, races: list) -> dict:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/race/save", session)
+    selected = []
+    for race in races:
+        if isinstance(race, str):
+            selected.append(_resolve_race(race, client, session))
+        elif isinstance(race, dict):
+            selected.append({
+                "id": race.get("id", 0), "name": race.get("name", ""),
+                "code": race.get("code", ""),
+                "source": race.get("source", "System-Defined (CDC)"),
+                "uiFlag": 1, "checked": True,
+            })
+    payload = {
+        "patientId": str(patient_id),
+        "declineToSpecify": 0,
+        "selectedValueList": selected,
+    }
+    r = client.post(url, json=payload, headers=hdrs)
+    r.raise_for_status()
+    return r.json() if r.text.strip() else {"status_code": r.status_code}
+
+
 # ── WRITE: Sliding Fee Schedule (Income) ─────────────────────────────────────
 
 def save_sliding_fee_schedule(client: requests.Session, session: dict,
@@ -592,7 +773,8 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
     income_info = fields.get("IncomeInfo", {})
     income_elements = []
     income_elements.append(_add_element_raw("IncomeDetailId",
-                                            income_info.get("Id", "")))
+                                            income_info.get("IncomeDetailId",
+                                            income_info.get("Id", "0"))))
     income_elements.append(_add_element_raw("GrHrRate",
                                             income_info.get("GrHrRate", "")))
     income_elements.append(_add_element_raw("GrHrPerWeek",
@@ -881,11 +1063,18 @@ def edit_demographics(client: requests.Session, session: dict,
     }
     tab2_map = {"maritalstatus": "maritalStatus", "stCity": "stCity",
                 "stState": "stState", "stZip": "stZip"}
+    # Reverse map so callers can use either casing (e.g. "maritalStatus" or "maritalstatus")
+    tab2_alias = {v: k for k, v in tab2_map.items() if v != k}
     tab2 = {}
     for f in tab2_fields:
         src = tab2_map.get(f, f)
+        alias = tab2_alias.get(f)
         if f in changes:
             tab2[f] = changes[f]
+        elif src in changes:
+            tab2[f] = changes[src]
+        elif alias and alias in changes:
+            tab2[f] = changes[alias]
         elif src in current:
             tab2[f] = current[src]
 
@@ -906,7 +1095,14 @@ def edit_demographics(client: requests.Session, session: dict,
         tab1["phoneNumbersArr"] = json.dumps(arr)
 
     tab1_changed = any(f in changes for f in tab1_fields)
-    tab2_changed = any(f in changes for f in tab2_fields)
+    tab2_changed = any(
+        f in changes or tab2_map.get(f, f) in changes
+        for f in tab2_fields
+    )
+
+    # Language and race use dedicated LRTE REST endpoints, not setPatient1.jsp
+    lrte_keys = {"language", "race", "Translator"}
+    lrte_changes = {k: changes[k] for k in lrte_keys if k in changes}
 
     results = {}
     if tab1_changed:
@@ -915,7 +1111,35 @@ def edit_demographics(client: requests.Session, session: dict,
     if tab2_changed:
         results["tab2"] = save_demographics_tab2(
             client, session, patient_id, tab2)
-    if not tab1_changed and not tab2_changed and not rp_changes:
+
+    if "language" in lrte_changes:
+        lang = lrte_changes["language"]
+        translator = int(lrte_changes.get("Translator", changes.get("Translator", 0)))
+        if isinstance(lang, dict):
+            results["language"] = save_language(
+                client, session, patient_id,
+                lang.get("name", ""), lang.get("code", ""),
+                lang.get("id", 0), translator)
+        else:
+            name, code, lid = _resolve_language(str(lang), client, session)
+            results["language"] = save_language(
+                client, session, patient_id, name, code, lid, translator)
+    elif "Translator" in lrte_changes:
+        cur_lang = current.get("language", "")
+        name, code, lid = _resolve_language(cur_lang, client, session)
+        results["language"] = save_language(
+            client, session, patient_id, name, code, lid,
+            translator=int(lrte_changes["Translator"]))
+
+    if "race" in lrte_changes:
+        race_val = lrte_changes["race"]
+        if isinstance(race_val, list):
+            results["race"] = save_race(client, session, patient_id, race_val)
+        elif isinstance(race_val, str):
+            results["race"] = save_race(client, session, patient_id,
+                                        [r.strip() for r in race_val.split(",")])
+
+    if not tab1_changed and not tab2_changed and not rp_changes and not lrte_changes:
         results["message"] = "No changes detected"
 
     if rp_changes:
@@ -930,13 +1154,38 @@ def edit_demographics(client: requests.Session, session: dict,
 
 def edit_income(client: requests.Session, session: dict,
                 patient_id: str, income_data: dict) -> dict:
+    """
+    Calculate + assign sliding fee schedule.
+
+    Browser ceremony (from HAR):
+    1. If existing assignment, expire it (Expired=1)
+    2. Calculate new fee from income/dependants/unit
+    3. Save new assignment (ItemId=-1, Expired=0)
+    """
     income = income_data.get("Income", "0")
     dependants = income_data.get("Dependants", "1")
     unit = income_data.get("Unit", "Monthly")
 
-    calc = calculate_sliding_fee(client, session, income, dependants, unit)
+    results = {}
 
+    # Step 1: Expire existing assignment if present
+    current = get_sliding_fee_schedule(client, session, patient_id)
+    has_existing = isinstance(current, dict) and current.get("Id")
+    if has_existing:
+        expire_fields = {**current}
+        expire_fields["ItemId"] = current["Id"]
+        expire_fields.setdefault("IncomeInfo", {})
+        expire_fields.setdefault("MemberInfo", [])
+        results["expired"] = save_sliding_fee_schedule(
+            client, session, patient_id, expire_fields, expire=True)
+
+    # Step 2: Calculate
+    calc = calculate_sliding_fee(client, session, income, dependants, unit)
+    results["calculated"] = calc
+
+    # Step 3: Save new assignment
     fields = {**income_data}
+    fields["ItemId"] = "-1"
     fields["AssignedType"] = calc.get("Type", "")
     fields["PovertyLevel"] = calc.get("PovertyLevel", "")
     fields["FeeSchId"] = calc.get("FeeSchId", "")
@@ -944,28 +1193,153 @@ def edit_income(client: requests.Session, session: dict,
     fields["MedicalDiscount"] = calc.get("MedicalDiscount", "")
     fields["DentalDiscount"] = calc.get("DentalDiscount", "")
     fields["CopayDiscount"] = calc.get("CopayDiscount", "")
-    fields["CopayDiscountType"] = calc.get("CopayDiscountType", "1")
-    if not fields.get("AssignedDate"):
-        fields["AssignedDate"] = calc.get("AssignedDate", "")
-    if not fields.get("ExpiryDate"):
-        fields["ExpiryDate"] = calc.get("ExpiryDate", "")
-
-    current = get_sliding_fee_schedule(client, session, patient_id)
-    if isinstance(current, dict) and current.get("status") == "success":
-        fields.setdefault("ItemId", current.get("Id", "-1"))
-        if "IncomeInfo" not in fields and "IncomeInfo" in current:
-            fields["IncomeInfo"] = current["IncomeInfo"]
-    else:
-        fields.setdefault("ItemId", "-1")
-
+    fields["CopayDiscountType"] = calc.get("CopayDiscountType", "0")
+    fields["AssignedDate"] = income_data.get("AssignedDate", calc.get("AssignedDate", ""))
+    fields["ExpiryDate"] = income_data.get("ExpiryDate", calc.get("ExpiryDate", ""))
     fields.setdefault("IncomeInfo", {})
     fields.setdefault("MemberInfo", [])
 
-    result = save_sliding_fee_schedule(
+    results["assigned"] = save_sliding_fee_schedule(
         client, session, patient_id, fields, expire=False)
-    result["calculated"] = {
-        "Type": calc.get("Type", ""),
-        "PovertyLevel": calc.get("PovertyLevel", ""),
-        "FeeSchId": calc.get("FeeSchId", ""),
-    }
+
+    return results
+
+
+# ── Parent Info ───────────────────────────────────────────────────────────────
+
+def get_parent_info(client: requests.Session, session: dict,
+                    patient_id: str) -> dict:
+    url = _make_url(
+        "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
+        session)
+    r = client.post(url, data={"accessParam": "load", "patientId": patient_id},
+                    headers=_get_headers(session))
+    r.raise_for_status()
+    return r.json()
+
+
+def save_parent_info(client: requests.Session, session: dict,
+                     patient_id: str, parent_data: dict) -> dict:
+    url = _make_url(
+        "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
+        session)
+    r = client.post(url, data={
+        "accessParam": "save",
+        "patientId": patient_id,
+        "FormData": json.dumps(parent_data),
+    }, headers=_get_headers(session))
+    r.raise_for_status()
+    return {"status_code": r.status_code, "saved": r.text.strip() == "true"}
+
+
+# ── SOGI ──────────────────────────────────────────────────────────────────────
+
+def get_sogi(client: requests.Session, session: dict,
+             patient_id: str) -> dict:
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp"
+        f"?trigger=getSOGI&patientId={patient_id}",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    data = r.json()
+    result = {}
+    po = data.get("patient_options", {})
+    result["birthsex"] = po.get("birthsex", "")
+    result["transgender"] = po.get("transgender", "")
+    result["pronouns"] = po.get("pp_details", [])
+    result["sexual_orientation"] = po.get("so_details", {})
+    result["gender_identity"] = po.get("gi_details", [])
+    result["pp_list"] = data.get("pp_list", [])
+    result["so_list"] = data.get("so_list", [])
+    result["gi_list"] = data.get("gi_list", [])
     return result
+
+
+def save_sogi(client: requests.Session, session: dict,
+              patient_id: str, data: dict) -> dict:
+    params = {
+        "trigger": "saveSOGI",
+        "patientId": patient_id,
+        "trUserId": session["tr_user_id"],
+        "transgender": data.get("transgender", ""),
+        "so_id": data.get("so_id", ""),
+        "gi_ids": data.get("gi_ids", ""),
+        "pp_ids": data.get("pp_ids", ""),
+        "so_reason": data.get("so_reason", ""),
+        "gi_reason": data.get("gi_reason", ""),
+        "pp_reason": data.get("pp_reason", ""),
+        "so_date": data.get("so_date", ""),
+        "gi_date": data.get("gi_date", ""),
+        "so_changed": str(data.get("so_changed", "true")).lower(),
+        "gi_changed": str(data.get("gi_changed", "true")).lower(),
+        "pp_changed": str(data.get("pp_changed", "true")).lower(),
+        "birthsex": data.get("birthsex", ""),
+        "transgender_changed": str(data.get("transgender_changed", "false")).lower(),
+        "birthsex_changed": str(data.get("birthsex_changed", "false")).lower(),
+        "modality": "WEB",
+    }
+    query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp?{query}",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    return {"status_code": r.status_code, "body": r.text[:500]}
+
+
+# ── Guarantor Search / Info ───────────────────────────────────────────────────
+
+def search_patients(client: requests.Session, session: dict,
+                    lastname: str, firstname: str = "") -> list:
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getPatients.jsp"
+        f"?SearchBy=Name&lastName={urllib.parse.quote(lastname)}"
+        f"&firstName={urllib.parse.quote(firstname)}"
+        f"&counter=1&MAXCOUNT=20",
+        session)
+    r = client.get(url, headers=_get_headers(session))
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    if isinstance(ret, dict):
+        patients = ret.get("patient", [])
+        if isinstance(patients, dict):
+            return [patients]
+        return patients if isinstance(patients, list) else []
+    return []
+
+
+def search_guarantors(client: requests.Session, session: dict,
+                      lastname: str, firstname: str = "") -> list:
+    url = _make_url(
+        f"/mobiledoc/jsp/uadmin/getGrList.jsp"
+        f"?counter=1&option=0&MAXCOUNT=20"
+        f"&firstName={urllib.parse.quote(firstname)}"
+        f"&lastName={urllib.parse.quote(lastname)}",
+        session)
+    r = client.get(url, headers=_get_headers(session))
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    if isinstance(ret, dict):
+        grs = ret.get("Guarantor", [])
+        if isinstance(grs, dict):
+            return [grs]
+        return grs if isinstance(grs, list) else []
+    return []
+
+
+def get_guarantor_info(client: requests.Session, session: dict,
+                       gr_id: str) -> dict:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    url = _make_url(f"/mobiledoc/emr/guarantor/getGuarantorInfo?grId={gr_id}",
+                    session)
+    r = client.post(url, headers=hdrs)
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    if isinstance(ret, dict) and "patient" in ret:
+        return ret["patient"]
+    return ret
