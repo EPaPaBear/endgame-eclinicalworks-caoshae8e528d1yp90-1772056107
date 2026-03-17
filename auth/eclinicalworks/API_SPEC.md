@@ -553,6 +553,48 @@ Calculate sliding fee from income data and assign it to the patient.
 
 ---
 
+### `upload-insurance-card`
+
+Upload an insurance card image to the patient's Insurance document folder.
+
+Validates file type (extension + magic bytes) before uploading. Accepted formats: PNG, JPG, GIF, PDF, BMP, TIFF.
+
+**Input:**
+```json
+{
+  "patient_id": "298724",
+  "action": "upload-insurance-card",
+  "image_base64": "<base64-encoded image data>",
+  "filename": "front_of_card.png",
+  "description": "Front of insurance card"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image_base64` | string | **Yes** | | Base64-encoded image data |
+| `filename` | string | No | `"insurance_card.png"` | Filename with extension |
+| `description` | string | No | `""` | Document description |
+
+**Response:**
+```json
+{
+  "status_code": 200,
+  "documentId": "yrERLeay6R",
+  "fileName": "uuid_298724.png"
+}
+```
+
+**Error (invalid file type):**
+```json
+{
+  "status_code": 400,
+  "body": { "error": "File content doesn't match PNG signature ..." }
+}
+```
+
+---
+
 ### `get-parent-info`
 
 Read parent info (Mother x2, Father x2, Other — name, phone, email each).

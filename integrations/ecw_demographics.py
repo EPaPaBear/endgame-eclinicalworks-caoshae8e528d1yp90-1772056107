@@ -144,6 +144,18 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "income_data dict is required"}}
             return edit_income(client, session, patient_id, income_data)
 
+        elif action == "upload-insurance-card":
+            image_b64 = input_data.get("image_base64", "")
+            if not image_b64:
+                return {"status_code": 400,
+                        "body": {"error": "image_base64 is required (base64-encoded image)"}}
+            import base64 as _b64
+            image_bytes = _b64.b64decode(image_b64)
+            fname = input_data.get("filename", "insurance_card.png")
+            desc = input_data.get("description", "")
+            return upload_insurance_card(
+                client, session, patient_id, image_bytes, fname, desc)
+
         elif action == "get-parent-info":
             return get_parent_info(client, session, patient_id)
 
@@ -191,6 +203,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "search-provider", "get-contacts",
                                  "add-contact", "update-contact",
                                  "set-responsible-party", "edit-income",
+                                 "upload-insurance-card",
                                  "get-parent-info", "save-parent-info",
                                  "get-sogi", "save-sogi",
                                  "search-guarantor", "get-guarantor-info",
@@ -1203,6 +1216,141 @@ def edit_income(client: requests.Session, session: dict,
         client, session, patient_id, fields, expire=False)
 
     return results
+
+
+# ── Document Upload ────────────────────────────────────────────────────────────
+
+MAGIC_BYTES = {
+    "png": (bytes.fromhex("89504E470D0A1A0A"), 0, 8),
+    "jpg": (bytes.fromhex("FFD8FF"), 0, 3),
+    "jpeg": (bytes.fromhex("FFD8FF"), 0, 3),
+    "gif": (bytes.fromhex("474946"), 0, 3),
+    "pdf": (bytes.fromhex("255044462D"), 0, 5),
+    "bmp": (bytes.fromhex("424D"), 0, 2),
+    "tif": (bytes.fromhex("49492A00"), 0, 4),
+    "tiff": (bytes.fromhex("49492A00"), 0, 4),
+}
+
+
+def _validate_file_type(client: requests.Session, session: dict,
+                        ext: str, file_bytes: bytes) -> dict:
+    """Validate file extension with ECW server and verify magic bytes."""
+    # Server-side extension check
+    url = _make_url(
+        f"/mobiledoc/jsp/filetransfer/fileTransferHandler.jsp"
+        f"?action=FileTypeDetails&extension={ext}",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    data = r.json()
+    result = data.get("result", [])
+    if not result:
+        return {"valid": False, "error": f"File type '{ext}' not accepted by ECW"}
+
+    # Client-side magic byte check
+    expected = result[0]
+    sig = bytes.fromhex(expected.get("FileSignature", ""))
+    offset = expected.get("SignatureOffSet", 0)
+    num_bytes = expected.get("BytesToRead", len(sig))
+    actual = file_bytes[offset:offset + num_bytes]
+    if actual != sig[:num_bytes]:
+        return {"valid": False,
+                "error": f"File content doesn't match {ext.upper()} signature (expected {sig.hex()}, got {actual.hex()})"}
+
+    return {"valid": True}
+
+
+def upload_insurance_card(client: requests.Session, session: dict,
+                          patient_id: str, image_bytes: bytes,
+                          filename: str = "insurance_card.png",
+                          description: str = "") -> dict:
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
+
+    # Validate file type before uploading
+    validation = _validate_file_type(client, session, ext, image_bytes)
+    if not validation["valid"]:
+        return {"status_code": 400, "body": {"error": validation["error"]}}
+    custom_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+    generated_name = f"{_uuid.uuid4()}_{patient_id}.{ext}"
+    now = _dt.now()
+    dir_path = f"/mobiledoc/{now.year}/{now.strftime('%m%d%Y')}"
+    scanned_date = f"{now.year}-{now.month}-{now.day}"
+
+    # Build metadata XML
+    doc_xml = (
+        f'<Document>'
+        f'<PatientId xsi:type="xsd:string">{patient_id}</PatientId>'
+        f'<FileName xsi:type="xsd:string">{generated_name}</FileName>'
+        f'<catid xsi:type="xsd:string">202</catid>'
+        f'<CustomName xsi:type="xsd:string">{_escape_xml(custom_name)}</CustomName>'
+        f'<ScannedDate xsi:type="xsd:string">{scanned_date}</ScannedDate>'
+        f'<ScannedBy xsi:type="xsd:string"></ScannedBy>'
+        f'<Description xsi:type="xsd:string">{_escape_xml(description)}</Description>'
+        f'<Review xsi:type="xsd:string">0</Review>'
+        f'<ReviewerId xsi:type="xsd:string">{session["tr_user_id"]}</ReviewerId>'
+        f'<ReviewerName xsi:type="xsd:string"></ReviewerName>'
+        f'<Priority xsi:type="xsd:string">0</Priority>'
+        f'<encId xsi:type="xsd:string">0</encId>'
+        f'<refID xsi:type="xsd:string">0</refID>'
+        f'<AttachTo xsi:type="xsd:string"></AttachTo>'
+        f'<DocAndLabReview xsi:type="xsd:string">0</DocAndLabReview>'
+        f'<PublishToeHX xsi:type="xsd:string">0</PublishToeHX>'
+        f'<FacilityId xsi:type="xsd:string">0</FacilityId>'
+        f'<DirPath xsi:type="xsd:string">{dir_path}</DirPath>'
+        f'<FtpServer xsi:type="xsd:string"></FtpServer>'
+        f'<Tags xsi:type="xsd:string"></Tags>'
+        f'<refReqId xsi:type="xsd:string">0</refReqId>'
+        f'<scanById xsi:type="xsd:string">{session["tr_user_id"]}</scanById>'
+        f'</Document>'
+    )
+    form_data_xml = _soap_envelope(doc_xml)
+
+    # Build query params (unencrypted fallback)
+    query_params = urllib.parse.urlencode({
+        "scan": "no",
+        "operation": "upload",
+        "filename": generated_name,
+        "filepath": dir_path,
+        "transformInput": "",
+        "moduleName": "patientDocuments",
+    })
+
+    content_type_map = {
+        "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+        "gif": "image/gif", "pdf": "application/pdf", "tif": "image/tiff",
+        "tiff": "image/tiff", "bmp": "image/bmp",
+    }
+    mime = content_type_map.get(ext, "application/octet-stream")
+
+    url = _make_url(f"/mobiledoc/ecwimage?{query_params}", session)
+    files = {
+        filename: (filename, image_bytes, mime),
+    }
+    data = {
+        "callingForm": "patientDocuments",
+        "nact": "2",
+        "PatientId": patient_id,
+        "FormData": form_data_xml,
+        "triggerEventModuleName": "patientDocuments",
+    }
+
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "X-CSRF-TOKEN": session["csrf_token"],
+        "Origin": BASE_URL,
+        "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
+    }
+
+    r = client.post(url, files=files, data=data, headers=hdrs)
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    doc_id = ret.get("documentId", "") if isinstance(ret, dict) else ""
+    return {"status_code": r.status_code, "documentId": doc_id,
+            "fileName": generated_name}
 
 
 # ── Parent Info ───────────────────────────────────────────────────────────────
