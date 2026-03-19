@@ -4,7 +4,8 @@ Platform: caoshae8e528d1yp90app.ecwcloud.com
 
 Actions: read, edit-demographics, read-combos, read-sliding-fee, calculate,
          search-provider, get-contacts, add-contact, update-contact,
-         set-responsible-party, edit-income
+         set-responsible-party, edit-income, read-sogi, save-sogi,
+         read-lrte, lrte-lookup, save-lrte, read-parent-info, save-parent-info
 
 Converted from action_handler.py for Lambda execution:
   - httpx → requests
@@ -50,6 +51,13 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       update-contact        - Update an existing contact
       set-responsible-party - Set guarantor/responsible party
       edit-income           - Calculate + assign sliding fee schedule
+      read-sogi             - Read SOGI data + dropdown lists
+      save-sogi             - Save SOGI (orientation, gender identity, pronouns)
+      read-lrte             - Read structured LRTE data for patient
+      lrte-lookup           - Search LRTE values (race/language/ethnicity)
+      save-lrte             - Save structured LRTE data
+      read-parent-info      - Read parent info (mother/father/other)
+      save-parent-info      - Save parent info
     """
     input_data = input_data or {}
     action = input_data.get("action", "read")
@@ -75,17 +83,6 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
 
         elif action == "read-combos":
             return get_demographics_combos(client, session, patient_id)
-
-        elif action == "read-lrte":
-            option = input_data.get("option", "")
-            search = input_data.get("search", "")
-            if option == "language":
-                return {"languages": search_languages(client, session, search)}
-            elif option == "race":
-                return {"races": get_race_list(client, session)}
-            else:
-                return {"status_code": 400,
-                        "body": {"error": "option must be 'language' or 'race'"}}
 
         elif action == "read-sliding-fee":
             return get_sliding_fee_schedule(client, session, patient_id)
@@ -144,11 +141,62 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "income_data dict is required"}}
             return edit_income(client, session, patient_id, income_data)
 
+        elif action == "read-sogi":
+            return get_sogi_details(client, session, patient_id)
+
+        elif action == "save-sogi":
+            sogi_data = input_data.get("sogi_data", {})
+            if not sogi_data:
+                return {"status_code": 400,
+                        "body": {"error": "sogi_data dict is required"}}
+            return save_sogi(client, session, patient_id, sogi_data)
+
+        elif action == "read-parent-info":
+            return get_parent_info(client, session, patient_id)
+
+        elif action == "save-parent-info":
+            parent_data = input_data.get("parent_data", {})
+            if not parent_data:
+                return {"status_code": 400,
+                        "body": {"error": "parent_data dict is required"}}
+            return save_parent_info(
+                client, session, patient_id, parent_data)
+
+        elif action == "read-lrte":
+            return get_patient_lrte(client, session, patient_id)
+
+        elif action == "lrte-lookup":
+            lrte_type = input_data.get("lrte_type", "race")
+            search = input_data.get("search", "")
+            return get_lrte_lookup(client, session, lrte_type, search)
+
+        elif action == "save-lrte":
+            lrte_type = input_data.get("lrte_type")
+            entries = input_data.get("entries", [])
+            decline = input_data.get("decline_to_specify", False)
+            translator = input_data.get("translator")
+            if not lrte_type:
+                return {"status_code": 400,
+                        "body": {"error": "lrte_type is required (race/language/ethnicity)"}}
+            return save_lrte(client, session, patient_id, lrte_type,
+                             entries, decline_to_specify=decline,
+                             translator=translator)
+
+        elif action == "read-structured-data":
+            return get_structured_data(client, session, patient_id)
+
+        elif action == "save-structured-data":
+            fields = input_data.get("structured_data", {})
+            if not fields:
+                return {"status_code": 400,
+                        "body": {"error": "structured_data dict is required"}}
+            return save_structured_data(client, session, patient_id, fields)
+
         elif action == "upload-insurance-card":
             image_b64 = input_data.get("image_base64", "")
             if not image_b64:
                 return {"status_code": 400,
-                        "body": {"error": "image_base64 is required (base64-encoded image)"}}
+                        "body": {"error": "image_base64 is required"}}
             import base64 as _b64
             image_bytes = _b64.b64decode(image_b64)
             fname = input_data.get("filename", "insurance_card.png")
@@ -156,57 +204,29 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             return upload_insurance_card(
                 client, session, patient_id, image_bytes, fname, desc)
 
-        elif action == "get-parent-info":
-            return get_parent_info(client, session, patient_id)
-
-        elif action == "save-parent-info":
-            parent_data = input_data.get("parent_info", {})
-            if not parent_data:
+        elif action == "upload-profile-picture":
+            image_b64 = input_data.get("image_base64", "")
+            if not image_b64:
                 return {"status_code": 400,
-                        "body": {"error": "parent_info dict is required"}}
-            return save_parent_info(client, session, patient_id, parent_data)
-
-        elif action == "get-sogi":
-            return get_sogi(client, session, patient_id)
-
-        elif action == "save-sogi":
-            return save_sogi(client, session, patient_id, input_data)
-
-        elif action == "search-guarantor":
-            search = input_data.get("search", "")
-            lastname, firstname = "", ""
-            if "," in search:
-                parts = search.split(",", 1)
-                lastname, firstname = parts[0].strip(), parts[1].strip()
-            else:
-                lastname = search.strip()
-            search_type = input_data.get("type", "patient")
-            if search_type == "guarantor":
-                return {"guarantors": search_guarantors(
-                    client, session, lastname, firstname)}
-            return {"patients": search_patients(
-                client, session, lastname, firstname)}
-
-        elif action == "get-guarantor-info":
-            gr_id = input_data.get("gr_id", "")
-            if not gr_id:
-                return {"status_code": 400,
-                        "body": {"error": "gr_id is required"}}
-            return get_guarantor_info(client, session, gr_id)
+                        "body": {"error": "image_base64 is required"}}
+            import base64 as _b64
+            image_bytes = _b64.b64decode(image_b64)
+            return upload_profile_picture(client, session, patient_id, image_bytes)
 
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
                              "valid_actions": [
                                  "read", "edit-demographics", "read-combos",
-                                 "read-lrte", "read-sliding-fee", "calculate",
+                                 "read-sliding-fee", "calculate",
                                  "search-provider", "get-contacts",
                                  "add-contact", "update-contact",
                                  "set-responsible-party", "edit-income",
-                                 "upload-insurance-card",
-                                 "get-parent-info", "save-parent-info",
-                                 "get-sogi", "save-sogi",
-                                 "search-guarantor", "get-guarantor-info",
+                                 "read-sogi", "save-sogi",
+                                 "read-lrte", "lrte-lookup", "save-lrte",
+                                 "read-parent-info", "save-parent-info",
+                                 "read-structured-data", "save-structured-data",
+                                 "upload-insurance-card", "upload-profile-picture",
                              ]}}
 
 
@@ -299,6 +319,18 @@ def _parse_soap_xml(text: str) -> dict:
         return {"_raw": text}
 
 
+def _soap_result(r, extra: dict = None) -> dict:
+    """Standard return for SOAP write operations. Checks <status> in response."""
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    soap_status = ret.get("status", "") if isinstance(ret, dict) else ""
+    result = {"status_code": 400 if soap_status == "failed" else r.status_code,
+              "body": ret if isinstance(ret, dict) else r.text[:500]}
+    if extra:
+        result.update(extra)
+    return result
+
+
 def _xml_to_dict(elem) -> dict:
     result = {}
     for child in elem:
@@ -327,6 +359,8 @@ def _build_session_from_headers(auth_headers: dict) -> dict:
             k, v = part.split("=", 1)
             cookies[k.strip()] = v.strip()
 
+    cip = auth_headers.get("cip", "null")
+
     return {
         "cookies": cookies,
         "csrf_token": csrf_token,
@@ -334,6 +368,7 @@ def _build_session_from_headers(auth_headers: dict) -> dict:
         "tr_user_id": session_did,
         "ecwappprocessid": "0",
         "timezone": "Atlantic/Reykjavik",
+        "cip": cip,
     }
 
 
@@ -345,7 +380,7 @@ def _get_headers(session: dict) -> dict:
         "X-CSRF-TOKEN": session["csrf_token"],
         "X-Requested-With": "XMLHttpRequest",
         "isAjaxRequest": "true",
-        "cip": "null",
+        "cip": session.get("cip", "null"),
         "Origin": BASE_URL,
         "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
         "Accept": "application/json, text/plain, */*",
@@ -389,6 +424,22 @@ def get_demographics_combos(client: requests.Session, session: dict,
               data)
     r.raise_for_status()
     return r.json()
+
+
+def fetch_phone_numbers(client: requests.Session, session: dict,
+                        patient_id: str) -> dict:
+    """Fetch existing phone number records with their database IDs.
+
+    Returns dict with CELL_PHONE, HOME_PHONE, WORK_PHONE objects.
+    Each object has 'id' field which is the database primary key.
+    """
+    data = {"patientId": patient_id}
+    r = _post(client, session,
+              "/mobiledoc/emr/patient/phonenumber/fetch",
+              data)
+    r.raise_for_status()
+    result = r.json()
+    return result.get("phoneNumberData", {})
 
 
 def get_sliding_fee_schedule(client: requests.Session, session: dict,
@@ -458,6 +509,57 @@ def search_providers(client: requests.Session, session: dict,
     return []
 
 
+def get_patient_lrte(client: requests.Session, session: dict,
+                     patient_id: str) -> dict:
+    r = _post(client, session,
+              "/mobiledoc/emr/patient/demographics/lrte/get-patient-lrte",
+              {"patientId": patient_id})
+    r.raise_for_status()
+    return r.json()
+
+
+def get_lrte_lookup(client: requests.Session, session: dict,
+                    lrte_type: str, search: str = "") -> list:
+    """Lookup LRTE values. lrte_type: 'race', 'language', or 'ethnicity'."""
+    type_to_path = {
+        "language": "/mobiledoc/emr/patient/demographics/lrte/get-language-list",
+        "race": "/mobiledoc/emr/patient/demographics/lrte/get-race-list",
+        "ethnicity": "/mobiledoc/emr/patient/demographics/lrte/get-ethnicity-list",
+    }
+    path = type_to_path.get(lrte_type)
+    if not path:
+        return []
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    params = {
+        "counter": 1, "name": search, "code": "", "mappedValue": "",
+        "source": "All", "pin": "All", "sortOrder": "ASC",
+    }
+    post_body = json.dumps(params)
+    url = _make_url(path, session, post_body=post_body)
+    r = client.post(url, headers=hdrs, data=post_body)
+    r.raise_for_status()
+    data = r.json()
+    result = data.get("result", {})
+    list_key = {
+        "language": "LanguageList",
+        "race": "RaceList",
+        "ethnicity": "EthnicityList",
+    }.get(lrte_type, "")
+    return result.get(list_key, [])
+
+
+def get_sogi_details(client: requests.Session, session: dict,
+                     patient_id: str) -> dict:
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp"
+        f"?trigger=getSOGI&patientId={patient_id}",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    return r.json()
+
+
 def calculate_sliding_fee(client: requests.Session, session: dict,
                           income: str, dependants: str,
                           unit: str) -> dict:
@@ -470,6 +572,168 @@ def calculate_sliding_fee(client: requests.Session, session: dict,
     if isinstance(parsed, dict) and "return" in parsed:
         return parsed["return"]
     return parsed
+
+
+# ── WRITE: LRTE (Language, Race, Tribe, Ethnicity) ─────────────────────────
+
+def save_lrte(client: requests.Session, session: dict,
+              patient_id: str, lrte_type: str, entries: list,
+              decline_to_specify: bool = False,
+              translator: bool = None) -> dict:
+    """Save structured LRTE data.
+
+    lrte_type: 'race', 'language', or 'ethnicity'
+    entries: list of dicts from get_lrte_lookup (id, name, code, etc.)
+    decline_to_specify: True to mark "declined to specify"
+    translator: bool, only for language — sets translator flag
+    """
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
+    payload = {
+        "patientId": int(patient_id),
+        "declineToSpecify": 1 if decline_to_specify else 0,
+    }
+    if not decline_to_specify:
+        payload["selectedValueList"] = entries
+    if lrte_type == "language" and translator is not None:
+        payload["translator"] = 1 if translator else 0
+    post_body = json.dumps(payload)
+    url = _make_url(
+        f"/mobiledoc/emr/patient/demographics/lrte/{lrte_type}/save",
+        session, post_body=post_body)
+    r = client.post(url, headers=hdrs, data=post_body)
+    r.raise_for_status()
+    return {"status_code": r.status_code, "body": r.text[:500]}
+
+
+# ── WRITE: SOGI ────────────────────────────────────────────────────────────
+
+def save_sogi(client: requests.Session, session: dict,
+              patient_id: str, sogi_data: dict) -> dict:
+    """Save SOGI data (sexual orientation, gender identity, pronouns, birth sex).
+
+    All parameters go in URL query string; POST body is empty.
+    Source: SOGICtrl.js saveSOGIDetails().
+
+    sogi_data fields:
+      birthsex: str ("M", "F", or "")
+      transgender: str ("Y" or "N")
+      so_id: str/int (sexual orientation id from so_list)
+      gi_ids: list[int] or str (gender identity ids, comma-separated)
+      pp_ids: list[int] or str (pronoun ids, comma-separated)
+      so_reason: str (reason text for sexual orientation)
+      gi_reason: str (reason text for gender identity)
+      pp_reason: str (reason text for pronouns)
+      so_date: str (MM/YYYY format)
+      gi_date: str (MM/YYYY format)
+      so_changed: bool (whether SO was modified)
+      gi_changed: bool (whether GI was modified)
+      pp_changed: bool (whether PP was modified)
+      birthsex_changed: bool (whether birth sex was modified)
+      transgender_changed: bool (whether transgender was modified)
+    """
+    def _bool(v):
+        return "true" if v else "false"
+
+    def _ids(v):
+        if isinstance(v, list):
+            return ",".join(str(x) for x in v)
+        return str(v) if v else ""
+
+    so_id = sogi_data.get("so_id", "")
+    gi_ids = _ids(sogi_data.get("gi_ids", ""))
+    pp_ids = _ids(sogi_data.get("pp_ids", ""))
+    transgender = sogi_data.get("transgender", "N")
+    birthsex = sogi_data.get("birthsex", "")
+
+    so_reason = urllib.parse.quote(str(sogi_data.get("so_reason", "")))
+    gi_reason = urllib.parse.quote(str(sogi_data.get("gi_reason", "")))
+    pp_reason = urllib.parse.quote(str(sogi_data.get("pp_reason", "")))
+
+    so_date = sogi_data.get("so_date", "")
+    gi_date = sogi_data.get("gi_date", "")
+
+    so_changed = _bool(sogi_data.get("so_changed", True))
+    gi_changed = _bool(sogi_data.get("gi_changed", True))
+    pp_changed = _bool(sogi_data.get("pp_changed", True))
+    birthsex_changed = _bool(sogi_data.get("birthsex_changed",
+                              "birthsex" in sogi_data))
+    transgender_changed = _bool(sogi_data.get("transgender_changed",
+                                 "transgender" in sogi_data))
+
+    path = (
+        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp"
+        f"?trigger=saveSOGI"
+        f"&patientId={patient_id}"
+        f"&trUserId={session['tr_user_id']}"
+        f"&transgender={transgender}"
+        f"&so_id={so_id}"
+        f"&gi_ids={gi_ids}"
+        f"&pp_ids={pp_ids}"
+        f"&so_reason={so_reason}"
+        f"&gi_reason={gi_reason}"
+        f"&pp_reason={pp_reason}"
+        f"&so_date={so_date}"
+        f"&gi_date={gi_date}"
+        f"&so_changed={so_changed}"
+        f"&gi_changed={gi_changed}"
+        f"&pp_changed={pp_changed}"
+        f"&birthsex={birthsex}"
+        f"&transgender_changed={transgender_changed}"
+        f"&birthsex_changed={birthsex_changed}"
+        f"&modality=WEB"
+    )
+    url = _make_url(path, session, post_body="")
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    return {"status_code": r.status_code, "body": r.text[:500]}
+
+
+# ── Parent Info ─────────────────────────────────────────────────────────────
+
+def get_parent_info(client: requests.Session, session: dict,
+                    patient_id: str) -> dict:
+    """Read parent info (mother/father/other name, phone, email)."""
+    r = _post(client, session,
+              "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
+              {"accessParam": "load", "patientId": patient_id})
+    r.raise_for_status()
+    text = r.text.strip()
+    if text:
+        return json.loads(text)
+    return {}
+
+
+def save_parent_info(client: requests.Session, session: dict,
+                     patient_id: str, parent_data: dict) -> dict:
+    """Save parent info.
+
+    parent_data fields (all optional, empty string to clear):
+      Mom1, Mom1Ph, Mom1Email, Mom2, Mom2Ph, Mom2Email,
+      Dad1, Dad1Ph, Dad1Email, Dad2, Dad2Ph, Dad2Email,
+      Other, OtherPh, OtherEmail
+    """
+    # Read current to preserve unset fields
+    current = get_parent_info(client, session, patient_id)
+    all_fields = [
+        "Mom1", "Mom1Ph", "Mom1Email", "Mom2", "Mom2Ph", "Mom2Email",
+        "Dad1", "Dad1Ph", "Dad1Email", "Dad2", "Dad2Ph", "Dad2Email",
+        "Other", "OtherPh", "OtherEmail",
+    ]
+    payload = {}
+    for f in all_fields:
+        if f in parent_data:
+            payload[f] = parent_data[f]
+        else:
+            payload[f] = current.get(f, "")
+
+    form_data = json.dumps(payload)
+    r = _post(client, session,
+              "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
+              {"accessParam": "save", "patientId": patient_id,
+               "FormData": form_data})
+    r.raise_for_status()
+    return {"status_code": r.status_code, "body": r.text[:500]}
 
 
 # ── WRITE: Demographics Tab 1 ───────────────────────────────────────────────
@@ -529,7 +793,7 @@ def save_demographics_tab1(client: requests.Session, session: dict,
               f"/mobiledoc/jsp/catalog/xml/setPatient.jsp?patientId={patient_id}",
               {"FormData": full_xml})
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
+    return _soap_result(r)
 
 
 # ── WRITE: Demographics Tab 2 ───────────────────────────────────────────────
@@ -644,136 +908,7 @@ def save_demographics_tab2(client: requests.Session, session: dict,
               f"?context=demographics&patientId={patient_id}&Id={patient_id}",
               {"FormData": full_xml})
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
-
-
-# ── WRITE: Language / Race (LRTE REST endpoints) ─────────────────────────────
-
-RACE_LOOKUP = {
-    "white": ("2106-3", 1043),
-    "asian": ("2028-9", 1749),
-    "black or african american": ("2054-5", 1044),
-    "american indian or alaska native": ("1002-5", 1042),
-    "native hawaiian or other pacific islander": ("2076-8", 1805),
-}
-
-LANGUAGE_LOOKUP = {
-    "english": ("en", 74),
-    "spanish": ("es", 196),
-    "french": ("fr", 234),
-    "chinese": ("zh", 48),
-    "vietnamese": ("vi", 224),
-    "korean": ("ko", 120),
-    "portuguese": ("pt", 169),
-    "arabic": ("ar", 14),
-    "russian": ("ru", 179),
-    "tagalog": ("tl", 210),
-    "german": ("de", 62),
-    "japanese": ("ja", 113),
-    "hindi": ("hi", 92),
-}
-
-
-def _resolve_race(race_str: str, client=None, session=None) -> dict:
-    key = race_str.strip().lower()
-    code, rid = RACE_LOOKUP.get(key, ("", 0))
-    if not code and client and session:
-        races = get_race_list(client, session)
-        for r in races:
-            if r.get("name", "").lower() == key:
-                return {"name": r["name"], "code": r.get("code", ""),
-                        "id": r.get("id", 0), "source": r.get("source", "System-Defined (CDC)"),
-                        "uiFlag": 1, "checked": True}
-    return {"name": race_str.strip(), "code": code, "id": rid,
-            "source": "System-Defined (CDC)", "uiFlag": 1, "checked": True}
-
-
-def _resolve_language(lang_str: str, client=None, session=None) -> tuple:
-    key = lang_str.strip().lower()
-    code, lid = LANGUAGE_LOOKUP.get(key, ("", 0))
-    if not code and client and session:
-        results = search_languages(client, session, lang_str.strip())
-        for r in results:
-            if r.get("name", "").lower() == key:
-                return r["name"], r.get("code", ""), r.get("id", 0)
-    return lang_str.strip(), code, lid
-
-
-def search_languages(client: requests.Session, session: dict,
-                     search: str = "") -> list:
-    hdrs = _get_headers(session)
-    hdrs["Content-Type"] = "application/json"
-    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/get-language-list", session)
-    payload = {"counter": 1, "name": search, "code": "", "mappedValue": "",
-               "source": "All", "pin": "All", "sortOrder": "ASC"}
-    r = client.post(url, json=payload, headers=hdrs)
-    r.raise_for_status()
-    data = r.json()
-    return data.get("result", {}).get("LanguageList", [])
-
-
-def get_race_list(client: requests.Session, session: dict) -> list:
-    hdrs = _get_headers(session)
-    hdrs["Content-Type"] = "application/json"
-    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/getLRTEData?counter=1", session)
-    r = client.post(url, headers=hdrs)
-    r.raise_for_status()
-    data = r.json()
-    return data.get("RaceObject", {}).get("result", {}).get("RaceList", [])
-
-
-def save_language(client: requests.Session, session: dict,
-                  patient_id: str, language_name: str,
-                  language_code: str = "", language_id: int = 0,
-                  translator: int = 0) -> dict:
-    hdrs = _get_headers(session)
-    hdrs["Content-Type"] = "application/json"
-    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/language/save", session)
-    payload = {
-        "patientId": str(patient_id),
-        "declineToSpecify": 0,
-        "selectedValueList": [{
-            "id": language_id,
-            "mappedId": 0,
-            "name": language_name,
-            "code": language_code,
-            "mappedValue": language_name,
-            "source": "System-Defined",
-            "uiFlag": 1,
-            "favorite": 0,
-            "checked": True,
-        }],
-        "translator": translator,
-    }
-    r = client.post(url, json=payload, headers=hdrs)
-    r.raise_for_status()
-    return r.json() if r.text.strip() else {"status_code": r.status_code}
-
-
-def save_race(client: requests.Session, session: dict,
-              patient_id: str, races: list) -> dict:
-    hdrs = _get_headers(session)
-    hdrs["Content-Type"] = "application/json"
-    url = _make_url("/mobiledoc/emr/patient/demographics/lrte/race/save", session)
-    selected = []
-    for race in races:
-        if isinstance(race, str):
-            selected.append(_resolve_race(race, client, session))
-        elif isinstance(race, dict):
-            selected.append({
-                "id": race.get("id", 0), "name": race.get("name", ""),
-                "code": race.get("code", ""),
-                "source": race.get("source", "System-Defined (CDC)"),
-                "uiFlag": 1, "checked": True,
-            })
-    payload = {
-        "patientId": str(patient_id),
-        "declineToSpecify": 0,
-        "selectedValueList": selected,
-    }
-    r = client.post(url, json=payload, headers=hdrs)
-    r.raise_for_status()
-    return r.json() if r.text.strip() else {"status_code": r.status_code}
+    return _soap_result(r)
 
 
 # ── WRITE: Sliding Fee Schedule (Income) ─────────────────────────────────────
@@ -785,45 +920,44 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
 
     income_info = fields.get("IncomeInfo", {})
     income_elements = []
-    income_elements.append(_add_element_raw("IncomeDetailId",
-                                            income_info.get("IncomeDetailId",
-                                            income_info.get("Id", "0"))))
-    income_elements.append(_add_element_raw("GrHrRate",
-                                            income_info.get("GrHrRate", "")))
-    income_elements.append(_add_element_raw("GrHrPerWeek",
-                                            income_info.get("GrHrPerWeek", "")))
-    income_elements.append(_add_element_raw("GrGrossAmt",
-                                            income_info.get("GrGrossAmt", "")))
-    income_elements.append(_add_element_raw("GrBiIncome",
-                                            income_info.get("GrBiRate", "")))
-    income_elements.append(_add_element_raw("GrBiGrossAmt",
-                                            income_info.get("GrBiGrossAmt", "")))
-    income_elements.append(_add_element_raw("SpHrRate",
-                                            income_info.get("SpHrRate", "")))
-    income_elements.append(_add_element_raw("SpHrPerWeek",
-                                            income_info.get("SpHrPerWeek", "")))
-    income_elements.append(_add_element_raw("SpGrossAmt",
-                                            income_info.get("SpGrossAmt", "")))
-    income_elements.append(_add_element_raw("SpBiIncome",
-                                            income_info.get("SpBiRate", "")))
-    income_elements.append(_add_element_raw("SpBiGrossAmt",
-                                            income_info.get("SpBiGrossAmt", "")))
+    income_elements.append(_add_element("IncomeDetailId",
+                                        income_info.get("Id", "")))
+    income_elements.append(_add_element("GrHrRate",
+                                        income_info.get("GrHrRate", "")))
+    income_elements.append(_add_element("GrHrPerWeek",
+                                        income_info.get("GrHrPerWeek", "")))
+    income_elements.append(_add_element("GrGrossAmt",
+                                        income_info.get("GrGrossAmt", "")))
+    income_elements.append(_add_element("GrBiIncome",
+                                        income_info.get("GrBiIncome", "")))
+    income_elements.append(_add_element("GrBiGrossAmt",
+                                        income_info.get("GrBiGrossAmt", "")))
+    income_elements.append(_add_element("SpHrRate",
+                                        income_info.get("SpHrRate", "")))
+    income_elements.append(_add_element("SpHrPerWeek",
+                                        income_info.get("SpHrPerWeek", "")))
+    income_elements.append(_add_element("SpGrossAmt",
+                                        income_info.get("SpGrossAmt", "")))
+    income_elements.append(_add_element("SpBiIncome",
+                                        income_info.get("SpBiIncome", "")))
+    income_elements.append(_add_element("SpBiGrossAmt",
+                                        income_info.get("SpBiGrossAmt", "")))
     income_elements.append(
         f'<UserId xsi:type="xsd:int">{session["tr_user_id"]}</UserId>')
-    income_elements.append(_add_element_raw("UserName",
-                                            fields.get("UserName", "")))
-    income_elements.append(_add_element_raw("OtherIncomeTypes",
-                                            income_info.get("OtherIncomeTypes", "")))
+    income_elements.append(_add_element("UserName",
+                                        fields.get("UserName", "")))
+    income_elements.append(_add_element("OtherIncomeTypes",
+                                        income_info.get("OtherIncomeTypes", "")))
     other_amts = income_info.get("OtherIncomeAmt", "0,0,0,0")
-    income_elements.append(_add_element_raw("OtherIncome", other_amts))
-    income_elements.append(_add_element_raw("OtherIncomeGrossAmt",
-                                            income_info.get("OtherIncomeGrossAmt", "")))
-    income_elements.append(_add_element_raw("ProofOfIncome",
-                                            income_info.get("ProofOfIncome", "")))
-    income_elements.append(_add_element_raw("OtherIncomeReason",
-                                            _escape_xml(income_info.get("OtherIncomeReason", ""))))
-    income_elements.append(_add_element_raw("MemberNotes",
-                                            income_info.get("MemberNotes", "")))
+    income_elements.append(_add_element("OtherIncome", other_amts))
+    income_elements.append(_add_element("OtherIncomeGrossAmt",
+                                        income_info.get("OtherIncomeGrossAmt", "")))
+    income_elements.append(_add_element("ProofOfIncome",
+                                        income_info.get("ProofOfIncome", "")))
+    income_elements.append(_add_element("OtherIncomeReason",
+                                        _escape_xml(income_info.get("OtherIncomeReason", ""))))
+    income_elements.append(_add_element("MemberNotes",
+                                        income_info.get("MemberNotes", "")))
 
     income_xml = (f'<IncomeInfo xsi:type="xsd:string">'
                   f'{"".join(income_elements)}</IncomeInfo>')
@@ -848,48 +982,48 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
             return date_str
 
     info_elements = []
-    info_elements.append(_add_element_raw("ItemId",
-                                          fields.get("ItemId", "-1")))
-    info_elements.append(_add_element_raw("PatientId", patient_id))
-    info_elements.append(_add_element_raw("Income",
-                                          fields.get("Income", "0")))
-    info_elements.append(_add_element_raw("Unit",
-                                          fields.get("Unit", "Monthly")))
-    info_elements.append(_add_element_raw("Dependant",
-                                          fields.get("Dependants", "1")))
-    info_elements.append(_add_element_raw("PovertyLevel",
-                                          fields.get("PovertyLevel", "")))
+    info_elements.append(_add_element("ItemId",
+                                      fields.get("ItemId", "-1")))
+    info_elements.append(_add_element("PatientId", patient_id))
+    info_elements.append(_add_element("Income",
+                                      fields.get("Income", "0")))
+    info_elements.append(_add_element("Unit",
+                                      fields.get("Unit", "Monthly")))
+    info_elements.append(_add_element("Dependant",
+                                      fields.get("Dependants", "1")))
+    info_elements.append(_add_element("PovertyLevel",
+                                      fields.get("PovertyLevel", "")))
     info_elements.append(
         f'<AssignedStatus xsi:type="xsd:int">1</AssignedStatus>')
-    info_elements.append(_add_element_raw("AssignedDate",
-                                          _date_to_yyyymmdd(fields.get("AssignedDate", ""))))
-    info_elements.append(_add_element_raw("ExpiryDate",
-                                          _date_to_yyyymmdd(fields.get("ExpiryDate", ""))))
-    info_elements.append(_add_element_raw("AssignedType",
-                                          fields.get("AssignedType", "")))
-    info_elements.append(_add_element_raw("FeeSchId",
-                                          fields.get("FeeSchId", "")))
-    info_elements.append(_add_element_raw("FeeSchedule",
-                                          fields.get("FeeSchedule", "")))
-    info_elements.append(_add_element_raw("DocProof",
-                                          fields.get("DocProof", "0")))
-    info_elements.append(_add_element_raw("NonProofOfIncome",
-                                          fields.get("NonProofOfIncome", "0")))
-    info_elements.append(_add_element_raw("MedicalDiscount",
-                                          fields.get("MedicalDiscount", "")))
-    info_elements.append(_add_element_raw("DentalDiscount",
+    info_elements.append(_add_element("AssignedDate",
+                                      _date_to_yyyymmdd(fields.get("AssignedDate", ""))))
+    info_elements.append(_add_element("ExpiryDate",
+                                      _date_to_yyyymmdd(fields.get("ExpiryDate", ""))))
+    info_elements.append(_add_element("AssignedType",
+                                      fields.get("AssignedType", "")))
+    info_elements.append(_add_element("FeeSchId",
+                                      fields.get("FeeSchId", "")))
+    info_elements.append(_add_element("FeeSchedule",
+                                      fields.get("FeeSchedule", "")))
+    info_elements.append(_add_element("DocProof",
+                                      fields.get("DocProof", "0")))
+    info_elements.append(_add_element("NonProofOfIncome",
+                                      fields.get("NonProofOfIncome", "0")))
+    info_elements.append(_add_element("MedicalDiscount",
+                                      fields.get("MedicalDiscount", "")))
+    info_elements.append(_add_element("DentalDiscount",
                                           fields.get("DentalDiscount", "")))
-    info_elements.append(_add_element_raw("CopayDiscount",
-                                          fields.get("CopayDiscount", "")))
+    info_elements.append(_add_element("CopayDiscount",
+                                      fields.get("CopayDiscount", "")))
     info_elements.append(
         f'<CopayDiscountType xsi:type="xsd:int">'
         f'{fields.get("CopayDiscountType", "1")}</CopayDiscountType>')
-    info_elements.append(_add_element_raw("Expired", expired_status))
+    info_elements.append(_add_element("Expired", expired_status))
     no_proof_reason = fields.get("NoProofReason", "")
     if fields.get("NonProofOfIncome") == "1" and no_proof_reason:
-        info_elements.append(_add_element_raw("NoProofReason", no_proof_reason))
+        info_elements.append(_add_element("NoProofReason", no_proof_reason))
     else:
-        info_elements.append(_add_element_raw("NoProofReason", ""))
+        info_elements.append(_add_element("NoProofReason", ""))
 
     info_xml = f'<Info xsi:type="xsd:string">{"".join(info_elements)}</Info>'
 
@@ -900,7 +1034,7 @@ def save_sliding_fee_schedule(client: requests.Session, session: dict,
               "/mobiledoc/jsp/catalog/xml/edi/setSlidingFeeScheduleForPatient.jsp",
               {"FormData": full_xml})
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
+    return _soap_result(r)
 
 
 # ── WRITE: Contacts ──────────────────────────────────────────────────────────
@@ -984,11 +1118,8 @@ def add_contact(client: requests.Session, session: dict,
     r.raise_for_status()
     parsed = _parse_soap_xml(r.text)
     ret = parsed.get("return", parsed)
-    contact_id = ""
-    if isinstance(ret, dict):
-        contact_id = ret.get("contactId", "")
-    return {"status_code": r.status_code, "contactId": contact_id,
-            "body": r.text[:500]}
+    contact_id = ret.get("contactId", "") if isinstance(ret, dict) else ""
+    return _soap_result(r, {"contactId": contact_id})
 
 
 def update_contact(client: requests.Session, session: dict,
@@ -1002,7 +1133,7 @@ def update_contact(client: requests.Session, session: dict,
               f"&ContactName={urllib.parse.quote(contact_name)}",
               {"FormData": full_xml})
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
+    return _soap_result(r)
 
 
 # ── WRITE: Responsible Party ─────────────────────────────────────────────────
@@ -1011,15 +1142,28 @@ def set_responsible_party(client: requests.Session, session: dict,
                           patient_id: str, gr_id: str,
                           gr_rel: str = "1",
                           is_gr_pt: str = "1") -> dict:
+    if gr_id == patient_id:
+        gr_rel = "1"
+        is_gr_pt = "1"
+
+    current = get_patient_info(client, session, patient_id)
+    prim_ins = ""
+    record_number = ""
+    if isinstance(current, dict):
+        prim_ins = current.get("PrimIns", "")
+        record_number = current.get("RecordNumber", "")
+
     elements = []
-    elements.append(_add_element("PrimIns", ""))
+    elements.append(_add_element("PrimIns", prim_ins))
     elements.append(
         f'<ResponsibleParty>'
         f'{_add_element("GrId", gr_id)}'
         f'{_add_element("GrRel", gr_rel)}'
         f'{_add_element("IsGrPt", is_gr_pt)}'
+        f'{_add_element("RecordNumber", record_number)}'
         f'</ResponsibleParty>'
     )
+    elements.append('<insurances/>')
     full_xml = _soap_envelope("".join(elements))
     data = {"FormData": full_xml}
     r = _post(client, session,
@@ -1027,13 +1171,23 @@ def set_responsible_party(client: requests.Session, session: dict,
               f"?patientId={patient_id}",
               data)
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
+    return _soap_result(r)
 
 
 # ── Convenience: Read-Modify-Write ───────────────────────────────────────────
 
 def edit_demographics(client: requests.Session, session: dict,
                       patient_id: str, changes: dict) -> dict:
+    if "maritalStatus" in changes and "maritalstatus" not in changes:
+        changes["maritalstatus"] = changes.pop("maritalStatus")
+
+    # Extract sub-action data before processing tab fields
+    sogi_data = changes.pop("sogi_data", None)
+    parent_data = changes.pop("parent_data", None)
+    income_data = changes.pop("income_data", None)
+    contact_data = changes.pop("contact", None)
+    update_contact_data = changes.pop("update_contact", None)
+
     rp_keys = {"GrId", "GrRel", "IsGrPt"}
     rp_changes = {k: changes.pop(k) for k in rp_keys if k in changes}
 
@@ -1076,46 +1230,64 @@ def edit_demographics(client: requests.Session, session: dict,
     }
     tab2_map = {"maritalstatus": "maritalStatus", "stCity": "stCity",
                 "stState": "stState", "stZip": "stZip"}
-    # Reverse map so callers can use either casing (e.g. "maritalStatus" or "maritalstatus")
-    tab2_alias = {v: k for k, v in tab2_map.items() if v != k}
     tab2 = {}
     for f in tab2_fields:
         src = tab2_map.get(f, f)
-        alias = tab2_alias.get(f)
         if f in changes:
             tab2[f] = changes[f]
-        elif src in changes:
-            tab2[f] = changes[src]
-        elif alias and alias in changes:
-            tab2[f] = changes[alias]
         elif src in current:
             tab2[f] = current[src]
 
     if "phone" in changes or "mobile" in changes:
-        cell = changes.get("mobile", current.get("umobileno", ""))
-        home = changes.get("phone", current.get("phone", ""))
-        work_phone = current.get("empPhone", "")
-        def _phone_obj(number, ptype, desc):
-            return {"id": 0, "patientId": 0, "phoneNumberType": ptype,
-                    "description": desc, "phoneNumber": number,
-                    "ext": None, "phoneNumberWithExt": number,
-                    "leaveMessage": None, "voiceEnabled": None}
-        arr = [
-            _phone_obj(cell, "Cell Phone", "Cell Phone"),
-            _phone_obj(home, "Home Phone", "Home Phone"),
-            _phone_obj(work_phone, "Work Phone", "Work Phone"),
-        ]
+        # Fetch existing phone records to get their database IDs
+        # This is required for UPDATE vs INSERT - id:0 creates new records
+        existing_phones = fetch_phone_numbers(client, session, patient_id)
+
+        def _default_phone_obj(ptype, patient_id_val):
+            """Create default phone object for new records."""
+            return {
+                "id": 0,
+                "patientId": int(patient_id_val),
+                "phoneNumberType": ptype,
+                "description": ptype,
+                "phoneNumber": "",
+                "ext": None,
+                "phoneNumberWithExt": "",
+                "leaveMessage": None,
+                "voiceEnabled": False,
+                "textEnabled": False,
+                "updatedOnlyNumber": False,
+                "updated": False,
+            }
+
+        # Get existing records or create defaults
+        cell_obj = existing_phones.get("CELL_PHONE") or _default_phone_obj(
+            "Cell Phone", patient_id)
+        home_obj = existing_phones.get("HOME_PHONE") or _default_phone_obj(
+            "Home Phone", patient_id)
+        work_obj = existing_phones.get("WORK_PHONE") or _default_phone_obj(
+            "Work Phone", patient_id)
+
+        # Apply changes and set updated flag
+        new_cell = changes.get("mobile")
+        new_home = changes.get("phone")
+
+        if new_cell is not None and new_cell != cell_obj.get("phoneNumber", ""):
+            cell_obj["phoneNumber"] = new_cell
+            cell_obj["phoneNumberWithExt"] = new_cell
+            cell_obj["updated"] = True
+
+        if new_home is not None and new_home != home_obj.get("phoneNumber", ""):
+            home_obj["phoneNumber"] = new_home
+            home_obj["phoneNumberWithExt"] = new_home
+            home_obj["updated"] = True
+
+        # Build the array in required order: [CELL, HOME, WORK]
+        arr = [cell_obj, home_obj, work_obj]
         tab1["phoneNumbersArr"] = json.dumps(arr)
 
     tab1_changed = any(f in changes for f in tab1_fields)
-    tab2_changed = any(
-        f in changes or tab2_map.get(f, f) in changes
-        for f in tab2_fields
-    )
-
-    # Language and race use dedicated LRTE REST endpoints, not setPatient1.jsp
-    lrte_keys = {"language", "race", "Translator"}
-    lrte_changes = {k: changes[k] for k in lrte_keys if k in changes}
+    tab2_changed = any(f in changes for f in tab2_fields)
 
     results = {}
     if tab1_changed:
@@ -1125,34 +1297,36 @@ def edit_demographics(client: requests.Session, session: dict,
         results["tab2"] = save_demographics_tab2(
             client, session, patient_id, tab2)
 
-    if "language" in lrte_changes:
-        lang = lrte_changes["language"]
-        translator = int(lrte_changes.get("Translator", changes.get("Translator", 0)))
-        if isinstance(lang, dict):
-            results["language"] = save_language(
-                client, session, patient_id,
-                lang.get("name", ""), lang.get("code", ""),
-                lang.get("id", 0), translator)
-        else:
-            name, code, lid = _resolve_language(str(lang), client, session)
-            results["language"] = save_language(
-                client, session, patient_id, name, code, lid, translator)
-    elif "Translator" in lrte_changes:
-        cur_lang = current.get("language", "")
-        name, code, lid = _resolve_language(cur_lang, client, session)
-        results["language"] = save_language(
-            client, session, patient_id, name, code, lid,
-            translator=int(lrte_changes["Translator"]))
+    lrte_fields = {"race", "language", "Ethnicity"}
+    lrte_changed = {f for f in lrte_fields if f in changes}
+    if lrte_changed:
+        results["lrte"] = {}
+        for field in lrte_changed:
+            lrte_type = "ethnicity" if field == "Ethnicity" else field
+            value = changes[field]
+            translator = None
+            if isinstance(value, list):
+                entries = value
+            elif isinstance(value, dict):
+                entries = value.get("selectedValueList", [])
+                translator = value.get("translator")
+            elif isinstance(value, str) and value:
+                lookup = get_lrte_lookup(client, session, lrte_type, value)
+                if isinstance(lookup, list) and lookup:
+                    exact = [x for x in lookup
+                             if x.get("name", "").lower() == value.lower()]
+                    entries = [exact[0] if exact else lookup[0]]
+                else:
+                    entries = [{"id": 0, "code": "", "name": value}]
+                if lrte_type == "language" and value.lower() != "english":
+                    translator = True
+            else:
+                entries = []
+            results["lrte"][lrte_type] = save_lrte(
+                client, session, patient_id, lrte_type, entries,
+                translator=translator)
 
-    if "race" in lrte_changes:
-        race_val = lrte_changes["race"]
-        if isinstance(race_val, list):
-            results["race"] = save_race(client, session, patient_id, race_val)
-        elif isinstance(race_val, str):
-            results["race"] = save_race(client, session, patient_id,
-                                        [r.strip() for r in race_val.split(",")])
-
-    if not tab1_changed and not tab2_changed and not rp_changes and not lrte_changes:
+    if not tab1_changed and not tab2_changed and not rp_changes and not lrte_changed:
         results["message"] = "No changes detected"
 
     if rp_changes:
@@ -1162,103 +1336,155 @@ def edit_demographics(client: requests.Session, session: dict,
         results["responsible_party"] = set_responsible_party(
             client, session, patient_id, gr_id, gr_rel, is_gr_pt)
 
+    if sogi_data:
+        results["sogi"] = save_sogi(client, session, patient_id, sogi_data)
+
+    if parent_data:
+        results["parent_info"] = save_parent_info(
+            client, session, patient_id, parent_data)
+
+    if income_data:
+        results["income"] = edit_income(
+            client, session, patient_id, income_data)
+
+    if contact_data:
+        results["contact"] = add_contact(
+            client, session, patient_id, contact_data)
+
+    if update_contact_data:
+        uc_id = update_contact_data.get("contact_id", "")
+        uc_fields = {k: v for k, v in update_contact_data.items()
+                     if k != "contact_id"}
+        if uc_id and uc_fields:
+            results["update_contact"] = update_contact(
+                client, session, patient_id, uc_id, uc_fields)
+
     return results
 
 
 def edit_income(client: requests.Session, session: dict,
                 patient_id: str, income_data: dict) -> dict:
-    """
-    Calculate + assign sliding fee schedule.
-
-    Browser ceremony (from HAR):
-    1. If existing assignment, expire it (Expired=1)
-    2. Calculate new fee from income/dependants/unit
-    3. Save new assignment (ItemId=-1, Expired=0)
-    """
     income = income_data.get("Income", "0")
     dependants = income_data.get("Dependants", "1")
     unit = income_data.get("Unit", "Monthly")
 
-    results = {}
-
-    # Step 1: Expire existing assignment if present
-    current = get_sliding_fee_schedule(client, session, patient_id)
-    has_existing = isinstance(current, dict) and current.get("Id")
-    if has_existing:
-        expire_fields = {**current}
-        expire_fields["ItemId"] = current["Id"]
-        expire_fields.setdefault("IncomeInfo", {})
-        expire_fields.setdefault("MemberInfo", [])
-        results["expired"] = save_sliding_fee_schedule(
-            client, session, patient_id, expire_fields, expire=True)
-
-    # Step 2: Calculate
     calc = calculate_sliding_fee(client, session, income, dependants, unit)
-    results["calculated"] = calc
 
-    # Step 3: Save new assignment
     fields = {**income_data}
-    fields["ItemId"] = "-1"
-    fields["AssignedType"] = calc.get("Type", "")
+    fields["AssignedType"] = calc.get("Type", calc.get("AssignedType", ""))
     fields["PovertyLevel"] = calc.get("PovertyLevel", "")
     fields["FeeSchId"] = calc.get("FeeSchId", "")
     fields["FeeSchedule"] = calc.get("FeeSchedule", "")
     fields["MedicalDiscount"] = calc.get("MedicalDiscount", "")
     fields["DentalDiscount"] = calc.get("DentalDiscount", "")
     fields["CopayDiscount"] = calc.get("CopayDiscount", "")
-    fields["CopayDiscountType"] = calc.get("CopayDiscountType", "0")
-    fields["AssignedDate"] = income_data.get("AssignedDate", calc.get("AssignedDate", ""))
-    fields["ExpiryDate"] = income_data.get("ExpiryDate", calc.get("ExpiryDate", ""))
+    fields["CopayDiscountType"] = calc.get("CopayDiscountType", "1")
+    if not fields.get("AssignedDate"):
+        fields["AssignedDate"] = calc.get("AssignedDate", "")
+    if not fields.get("ExpiryDate"):
+        fields["ExpiryDate"] = calc.get("ExpiryDate", "")
+
+    current = get_sliding_fee_schedule(client, session, patient_id)
+    has_existing = isinstance(current, dict) and current.get("Id")
+
+    # Expire existing assignment before creating new one (matches browser HAR)
+    if has_existing:
+        expire_fields = {**current}
+        expire_fields["ItemId"] = current["Id"]
+        expire_fields.setdefault("IncomeInfo", {})
+        expire_fields.setdefault("MemberInfo", [])
+        save_sliding_fee_schedule(client, session, patient_id, expire_fields, expire=True)
+
+    if has_existing and "IncomeInfo" not in fields and "IncomeInfo" in current:
+        fields["IncomeInfo"] = current["IncomeInfo"]
+
+    fields["ItemId"] = "-1"
+
     fields.setdefault("IncomeInfo", {})
     fields.setdefault("MemberInfo", [])
 
-    results["assigned"] = save_sliding_fee_schedule(
+    result = save_sliding_fee_schedule(
         client, session, patient_id, fields, expire=False)
+    result["calculated"] = {
+        "AssignedType": calc.get("Type", calc.get("AssignedType", "")),
+        "PovertyLevel": calc.get("PovertyLevel", ""),
+        "FeeSchId": calc.get("FeeSchId", ""),
+        "FeeSchedule": calc.get("FeeSchedule", ""),
+        "MedicalDiscount": calc.get("MedicalDiscount", ""),
+        "DentalDiscount": calc.get("DentalDiscount", ""),
+        "AssignedDate": calc.get("AssignedDate", ""),
+        "ExpiryDate": calc.get("ExpiryDate", ""),
+    }
+    return result
 
-    return results
 
+# ── Structured Data (Additional Information) ──────────────────────────────────
 
-# ── Document Upload ────────────────────────────────────────────────────────────
-
-MAGIC_BYTES = {
-    "png": (bytes.fromhex("89504E470D0A1A0A"), 0, 8),
-    "jpg": (bytes.fromhex("FFD8FF"), 0, 3),
-    "jpeg": (bytes.fromhex("FFD8FF"), 0, 3),
-    "gif": (bytes.fromhex("474946"), 0, 3),
-    "pdf": (bytes.fromhex("255044462D"), 0, 5),
-    "bmp": (bytes.fromhex("424D"), 0, 2),
-    "tif": (bytes.fromhex("49492A00"), 0, 4),
-    "tiff": (bytes.fromhex("49492A00"), 0, 4),
+STRUCTURED_DATA_IDS = {
+    "Homeless": "3799",
+    "Seasonal Agricultural Worker": "3797",
+    "Migrant Agricultural Worker": "3798",
+    "Veteran": "3796",
+    "Public Housing": "3815",
+    "Uninsured": "13242",
+    "Last Registration Update": "12595",
+    "Monthly Estimated Income": "12594",
+    "Family Size": "12593",
+    "Primary Dentist": "13030",
 }
 
 
-def _validate_file_type(client: requests.Session, session: dict,
-                        ext: str, file_bytes: bytes) -> dict:
-    """Validate file extension with ECW server and verify magic bytes."""
-    # Server-side extension check
+def get_structured_data(client: requests.Session, session: dict,
+                        patient_id: str) -> dict:
+    hdrs = _get_headers(session)
+    hdrs["Content-Type"] = "application/json"
     url = _make_url(
-        f"/mobiledoc/jsp/filetransfer/fileTransferHandler.jsp"
-        f"?action=FileTypeDetails&extension={ext}",
+        f"/mobiledoc/emr/patienthub/structuredata?patientId={patient_id}",
         session)
-    r = client.post(url, headers=_get_headers(session))
+    r = client.post(url, headers=hdrs)
     r.raise_for_status()
-    data = r.json()
-    result = data.get("result", [])
-    if not result:
-        return {"valid": False, "error": f"File type '{ext}' not accepted by ECW"}
+    items = r.json() if r.text.strip() else []
+    return {item["item"]: item.get("value", "") for item in items
+            if isinstance(item, dict) and "item" in item}
 
-    # Client-side magic byte check
-    expected = result[0]
-    sig = bytes.fromhex(expected.get("FileSignature", ""))
-    offset = expected.get("SignatureOffSet", 0)
-    num_bytes = expected.get("BytesToRead", len(sig))
-    actual = file_bytes[offset:offset + num_bytes]
-    if actual != sig[:num_bytes]:
-        return {"valid": False,
-                "error": f"File content doesn't match {ext.upper()} signature (expected {sig.hex()}, got {actual.hex()})"}
 
-    return {"valid": True}
+def save_structured_data(client: requests.Session, session: dict,
+                         patient_id: str, fields: dict) -> dict:
+    # Read current values first — ECW expects ALL items in the save, not just changes
+    current = get_structured_data(client, session, patient_id)
 
+    # Merge changes into current
+    merged = dict(current)
+    for name, value in fields.items():
+        merged[name] = value
+
+    items_xml = []
+    # Send all known items with their current or updated values
+    for name, detail_id in STRUCTURED_DATA_IDS.items():
+        value = merged.get(name, "")
+        notes = ""
+        if isinstance(value, dict):
+            notes = value.get("notes", "")
+            value = value.get("value", "")
+        items_xml.append(
+            f'<item xsi:type="xsd:string">'
+            f'<detailId xsi:type="xsd:string">{detail_id}</detailId>'
+            f'<value xsi:type="xsd:string"><![CDATA[{value}]]></value>'
+            f'<notes xsi:type="xsd:string"><![CDATA[{notes}]]></notes>'
+            f'<valueId xsi:type="xsd:string"/>'
+            f'</item>')
+
+    full_xml = _soap_envelope("".join(items_xml))
+    data = {"FormData": full_xml, "StructData": ""}
+    r = _post(client, session,
+              f"/mobiledoc/jsp/catalog/xml/setStructData.jsp"
+              f"?encId={patient_id}&catId=0&itemId=0&table=structDemographics",
+              data)
+    r.raise_for_status()
+    return _soap_result(r)
+
+
+# ── Insurance Card Upload ─────────────────────────────────────────────────────
 
 def upload_insurance_card(client: requests.Session, session: dict,
                           patient_id: str, image_bytes: bytes,
@@ -1268,18 +1494,12 @@ def upload_insurance_card(client: requests.Session, session: dict,
     from datetime import datetime as _dt
 
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
-
-    # Validate file type before uploading
-    validation = _validate_file_type(client, session, ext, image_bytes)
-    if not validation["valid"]:
-        return {"status_code": 400, "body": {"error": validation["error"]}}
     custom_name = filename.rsplit(".", 1)[0] if "." in filename else filename
     generated_name = f"{_uuid.uuid4()}_{patient_id}.{ext}"
     now = _dt.now()
     dir_path = f"/mobiledoc/{now.year}/{now.strftime('%m%d%Y')}"
     scanned_date = f"{now.year}-{now.month}-{now.day}"
 
-    # Build metadata XML
     doc_xml = (
         f'<Document>'
         f'<PatientId xsi:type="xsd:string">{patient_id}</PatientId>'
@@ -1304,190 +1524,64 @@ def upload_insurance_card(client: requests.Session, session: dict,
         f'<Tags xsi:type="xsd:string"></Tags>'
         f'<refReqId xsi:type="xsd:string">0</refReqId>'
         f'<scanById xsi:type="xsd:string">{session["tr_user_id"]}</scanById>'
-        f'</Document>'
-    )
+        f'</Document>')
     form_data_xml = _soap_envelope(doc_xml)
 
-    # Build query params (unencrypted fallback)
     query_params = urllib.parse.urlencode({
-        "scan": "no",
-        "operation": "upload",
-        "filename": generated_name,
-        "filepath": dir_path,
-        "transformInput": "",
-        "moduleName": "patientDocuments",
+        "scan": "no", "operation": "upload",
+        "filename": generated_name, "filepath": dir_path,
+        "transformInput": "", "moduleName": "patientDocuments",
     })
 
     content_type_map = {
         "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-        "gif": "image/gif", "pdf": "application/pdf", "tif": "image/tiff",
-        "tiff": "image/tiff", "bmp": "image/bmp",
+        "gif": "image/gif", "pdf": "application/pdf",
+        "tif": "image/tiff", "tiff": "image/tiff", "bmp": "image/bmp",
     }
     mime = content_type_map.get(ext, "application/octet-stream")
 
     url = _make_url(f"/mobiledoc/ecwimage?{query_params}", session)
-    files = {
-        filename: (filename, image_bytes, mime),
-    }
-    data = {
-        "callingForm": "patientDocuments",
-        "nact": "2",
-        "PatientId": patient_id,
-        "FormData": form_data_xml,
-        "triggerEventModuleName": "patientDocuments",
-    }
-
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "X-CSRF-TOKEN": session["csrf_token"],
         "Origin": BASE_URL,
         "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
     }
-
-    r = client.post(url, files=files, data=data, headers=hdrs)
+    r = client.post(url, files={filename: (filename, image_bytes, mime)},
+                    data={"callingForm": "patientDocuments", "nact": "2",
+                          "PatientId": patient_id, "FormData": form_data_xml,
+                          "triggerEventModuleName": "patientDocuments"},
+                    headers=hdrs)
     r.raise_for_status()
     parsed = _parse_soap_xml(r.text)
     ret = parsed.get("return", parsed)
     doc_id = ret.get("documentId", "") if isinstance(ret, dict) else ""
-    return {"status_code": r.status_code, "documentId": doc_id,
-            "fileName": generated_name}
+    return _soap_result(r, {"documentId": doc_id, "fileName": generated_name})
 
 
-# ── Parent Info ───────────────────────────────────────────────────────────────
+# ── Profile Picture Upload ────────────────────────────────────────────────────
 
-def get_parent_info(client: requests.Session, session: dict,
-                    patient_id: str) -> dict:
+def upload_profile_picture(client: requests.Session, session: dict,
+                           patient_id: str, image_bytes: bytes) -> dict:
+    filename = f"{patient_id}.jpg"
     url = _make_url(
-        "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
+        f"/mobiledoc/ecwimage?operation=upload&filename={filename}"
+        f"&filepath=/mobiledoc/Patients",
         session)
-    r = client.post(url, data={"accessParam": "load", "patientId": patient_id},
-                    headers=_get_headers(session))
-    r.raise_for_status()
-    return r.json()
-
-
-def save_parent_info(client: requests.Session, session: dict,
-                     patient_id: str, parent_data: dict) -> dict:
-    url = _make_url(
-        "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
-        session)
-    r = client.post(url, data={
-        "accessParam": "save",
-        "patientId": patient_id,
-        "FormData": json.dumps(parent_data),
-    }, headers=_get_headers(session))
-    r.raise_for_status()
-    return {"status_code": r.status_code, "saved": r.text.strip() == "true"}
-
-
-# ── SOGI ──────────────────────────────────────────────────────────────────────
-
-def get_sogi(client: requests.Session, session: dict,
-             patient_id: str) -> dict:
-    url = _make_url(
-        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp"
-        f"?trigger=getSOGI&patientId={patient_id}",
-        session)
-    r = client.post(url, headers=_get_headers(session))
-    r.raise_for_status()
-    data = r.json()
-    result = {}
-    po = data.get("patient_options", {})
-    result["birthsex"] = po.get("birthsex", "")
-    result["transgender"] = po.get("transgender", "")
-    result["pronouns"] = po.get("pp_details", [])
-    result["sexual_orientation"] = po.get("so_details", {})
-    result["gender_identity"] = po.get("gi_details", [])
-    result["pp_list"] = data.get("pp_list", [])
-    result["so_list"] = data.get("so_list", [])
-    result["gi_list"] = data.get("gi_list", [])
-    return result
-
-
-def save_sogi(client: requests.Session, session: dict,
-              patient_id: str, data: dict) -> dict:
-    params = {
-        "trigger": "saveSOGI",
-        "patientId": patient_id,
-        "trUserId": session["tr_user_id"],
-        "transgender": data.get("transgender", ""),
-        "so_id": data.get("so_id", ""),
-        "gi_ids": data.get("gi_ids", ""),
-        "pp_ids": data.get("pp_ids", ""),
-        "so_reason": data.get("so_reason", ""),
-        "gi_reason": data.get("gi_reason", ""),
-        "pp_reason": data.get("pp_reason", ""),
-        "so_date": data.get("so_date", ""),
-        "gi_date": data.get("gi_date", ""),
-        "so_changed": str(data.get("so_changed", "true")).lower(),
-        "gi_changed": str(data.get("gi_changed", "true")).lower(),
-        "pp_changed": str(data.get("pp_changed", "true")).lower(),
-        "birthsex": data.get("birthsex", ""),
-        "transgender_changed": str(data.get("transgender_changed", "false")).lower(),
-        "birthsex_changed": str(data.get("birthsex_changed", "false")).lower(),
-        "modality": "WEB",
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "X-CSRF-TOKEN": session["csrf_token"],
+        "X-Requested-With": "XMLHttpRequest",
+        "isAjaxRequest": "true",
+        "Origin": BASE_URL,
+        "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
     }
-    query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
-    url = _make_url(
-        f"/mobiledoc/jsp/catalog/xml/getSOGIdetails.jsp?{query}",
-        session)
-    r = client.post(url, headers=_get_headers(session))
+    r = client.post(url,
+                    files={"sampleFile": ("blob", image_bytes, "image/jpeg")},
+                    data={"foldername": "", "id": "", "flag": ""},
+                    headers=hdrs)
     r.raise_for_status()
-    return {"status_code": r.status_code, "body": r.text[:500]}
-
-
-# ── Guarantor Search / Info ───────────────────────────────────────────────────
-
-def search_patients(client: requests.Session, session: dict,
-                    lastname: str, firstname: str = "") -> list:
-    url = _make_url(
-        f"/mobiledoc/jsp/catalog/xml/getPatients.jsp"
-        f"?SearchBy=Name&lastName={urllib.parse.quote(lastname)}"
-        f"&firstName={urllib.parse.quote(firstname)}"
-        f"&counter=1&MAXCOUNT=20",
-        session)
-    r = client.get(url, headers=_get_headers(session))
-    r.raise_for_status()
-    parsed = _parse_soap_xml(r.text)
-    ret = parsed.get("return", parsed)
-    if isinstance(ret, dict):
-        patients = ret.get("patient", [])
-        if isinstance(patients, dict):
-            return [patients]
-        return patients if isinstance(patients, list) else []
-    return []
-
-
-def search_guarantors(client: requests.Session, session: dict,
-                      lastname: str, firstname: str = "") -> list:
-    url = _make_url(
-        f"/mobiledoc/jsp/uadmin/getGrList.jsp"
-        f"?counter=1&option=0&MAXCOUNT=20"
-        f"&firstName={urllib.parse.quote(firstname)}"
-        f"&lastName={urllib.parse.quote(lastname)}",
-        session)
-    r = client.get(url, headers=_get_headers(session))
-    r.raise_for_status()
-    parsed = _parse_soap_xml(r.text)
-    ret = parsed.get("return", parsed)
-    if isinstance(ret, dict):
-        grs = ret.get("Guarantor", [])
-        if isinstance(grs, dict):
-            return [grs]
-        return grs if isinstance(grs, list) else []
-    return []
-
-
-def get_guarantor_info(client: requests.Session, session: dict,
-                       gr_id: str) -> dict:
-    hdrs = _get_headers(session)
-    hdrs["Content-Type"] = "application/json"
-    url = _make_url(f"/mobiledoc/emr/guarantor/getGuarantorInfo?grId={gr_id}",
-                    session)
-    r = client.post(url, headers=hdrs)
-    r.raise_for_status()
-    parsed = _parse_soap_xml(r.text)
-    ret = parsed.get("return", parsed)
-    if isinstance(ret, dict) and "patient" in ret:
-        return ret["patient"]
-    return ret
+    ok = "success" in r.text.lower()
+    return {"status_code": 200 if ok else 400,
+            "body": r.text.strip(),
+            "fileName": filename}

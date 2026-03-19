@@ -147,11 +147,19 @@ def login(username: str, password: str) -> dict:
 
     with httpx.Client(timeout=30.0, follow_redirects=False, headers=headers_common) as client:
 
-        # Seed persistent cookies (e.g. eCW_ULO trusted device token) to skip 2FA
+        # Seed eCW_ULO (trusted device token) to skip 2FA.
+        # Do NOT seed JSESSIONID/gateway cookies — stale session IDs cause 412.
+        _skip = {"JSESSIONID", "ApplicationGatewayAffinity", "ApplicationGatewayAffinityCORS"}
         try:
+            for c in persistent_cookies:
+                if isinstance(c, dict) and c.get("value") and c["name"] not in _skip:
+                    client.cookies.set(c["name"], c["value"],
+                                       domain=c.get("domain") or None)
+                elif isinstance(c, str) and c not in _skip:
+                    client.cookies.set(c, persistent_cookies[c])
             seed_cookies(client)
-        except NameError:
-            pass  # standalone mode, no seed_cookies injected
+        except (NameError, TypeError):
+            pass
 
         # ── Step 1: GET login page ──
         print("[1/9] Loading login page...")
@@ -337,11 +345,22 @@ def login(username: str, password: str) -> dict:
                     else:
                         raise Exception("checkSecureToken polling timed out (120s)")
 
-                # Navigate to dashboard after verification
+                # Re-GET OTPVerification.jsp to receive the eCW_ULO Set-Cookie
+                # (ECW sets it on the 302 redirect after verification succeeds)
                 r = client.get(
-                    f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
+                    f"{BASE_URL}/mobiledoc/jsp/webemr/login/OTPVerification.jsp",
                     headers={"Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/login/OTPVerification.jsp"},
                 )
+                # Follow the 302 → index.jsp
+                if r.status_code in (301, 302, 303):
+                    loc = r.headers.get("location", "")
+                    url = loc if loc.startswith("http") else f"{BASE_URL}{loc}"
+                    r = client.get(url, headers={"Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/login/OTPVerification.jsp"})
+                else:
+                    r = client.get(
+                        f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
+                        headers={"Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/login/OTPVerification.jsp"},
+                    )
                 for _ in range(10):
                     if r.status_code not in (301, 302, 303, 307, 308):
                         break
