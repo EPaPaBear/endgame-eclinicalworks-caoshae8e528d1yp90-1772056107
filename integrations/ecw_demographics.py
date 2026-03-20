@@ -412,6 +412,23 @@ def get_patient_info(client: requests.Session, session: dict,
         for key in ("return", "patient"):
             if key in parsed:
                 parsed = parsed[key]
+
+    # Enrich with phone list data (cell, home, work with database IDs)
+    if isinstance(parsed, dict) and parsed:
+        try:
+            phones = fetch_phone_numbers(client, session, patient_id)
+            phone_list = {}
+            for ptype, obj in phones.items():
+                if isinstance(obj, dict) and obj.get("phoneNumber"):
+                    phone_list[ptype] = {
+                        "id": obj.get("id"),
+                        "phoneNumber": obj.get("phoneNumber", ""),
+                        "ext": obj.get("ext"),
+                    }
+            parsed["phoneList"] = phone_list
+        except Exception:
+            pass
+
     return parsed
 
 
