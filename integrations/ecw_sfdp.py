@@ -97,11 +97,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                 return {"status_code": 400, "body": {"error": "patient_id required"}}
             return get_insurance_info(client, session, patient_id)
 
-        elif action == "search-carriers":
+        elif action == "search-carriers" or action == "list-carriers":
             name = input_data.get("search", "")
             ins_type = input_data.get("ins_type", "")
-            if not name:
-                return {"status_code": 400, "body": {"error": "search required"}}
             return {"carriers": search_insurance_carriers(
                 client, session, name, ins_type)}
 
@@ -177,7 +175,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                              "valid_actions": [
                                  "sliding-history", "sliding-detail",
                                  "other-income-reasons", "find-members",
-                                 "get-insurance", "search-carriers",
+                                 "get-insurance", "search-carriers", "list-carriers",
                                  "delete-insurance", "save-insurance-detail",
                                  "add-insurance", "update-insurance",
                                  "scenario-1", "scenario-2", "scenario-5",
@@ -793,7 +791,10 @@ def _set_pt_insurance(client: requests.Session, session: dict,
                       patient_id: str, insurance_data: dict,
                       pt_ins_id: str = "0") -> dict:
     e = _add_element
-    d = insurance_data
+    d = dict(insurance_data)
+    # Alias: schema uses SubscriberId, XML needs SubscriberNo
+    if "SubscriberId" in d and "SubscriberNo" not in d:
+        d["SubscriberNo"] = d.pop("SubscriberId")
 
     elements = []
     elements.append(f'<Id xsi:type="xsd:int">{pt_ins_id}</Id>')
@@ -805,7 +806,7 @@ def _set_pt_insurance(client: requests.Session, session: dict,
     elements.append(e("SubscriberNo", d.get("SubscriberNo", ""), cdata=True))
     elements.append(e("GroupNo", d.get("GroupNo", ""), cdata=True))
     elements.append(e("CoPay", d.get("CoPay", "")))
-    elements.append(e("CopayMethod", d.get("CopayMethod", "")))
+    elements.append(e("CopayMethod", d.get("CopayMethod", "$")))
     elements.append(e("StartDate", d.get("StartDate", "")))
     elements.append(e("EndDate", d.get("EndDate", "")))
     elements.append(
@@ -898,7 +899,7 @@ def _set_pt_insurance(client: requests.Session, session: dict,
 def add_insurance(client: requests.Session, session: dict,
                   patient_id: str, insurance_data: dict) -> dict:
     return _set_pt_insurance(
-        client, session, patient_id, insurance_data, pt_ins_id="0")
+        client, session, patient_id, insurance_data, pt_ins_id="-1")
 
 
 def update_insurance(client: requests.Session, session: dict,

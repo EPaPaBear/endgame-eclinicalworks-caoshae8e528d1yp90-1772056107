@@ -1199,7 +1199,7 @@ def edit_demographics(client: requests.Session, session: dict,
         "prefix", "suffix", "fname", "lname", "mname",
         "address1", "address2", "city", "state", "zip",
         "Country", "CountyCode", "CountyName", "MailCountyCode", "MailCountyName",
-        "phone", "mobile", "PreviousName", "email", "emailReason",
+        "phone", "mobile", "workPhone", "PreviousName", "email", "emailReason",
         "dob", "tob", "ssn", "sex", "TransGender", "status",
         "primaryServiceLocation", "gestationalAge", "PreferredName",
         "mflag", "demoChangedFields1", "phoneNumbersArr",
@@ -1238,13 +1238,10 @@ def edit_demographics(client: requests.Session, session: dict,
         elif src in current:
             tab2[f] = current[src]
 
-    if "phone" in changes or "mobile" in changes:
-        # Fetch existing phone records to get their database IDs
-        # This is required for UPDATE vs INSERT - id:0 creates new records
+    if "phone" in changes or "mobile" in changes or "workPhone" in changes:
         existing_phones = fetch_phone_numbers(client, session, patient_id)
 
         def _default_phone_obj(ptype, patient_id_val):
-            """Create default phone object for new records."""
             return {
                 "id": 0,
                 "patientId": int(patient_id_val),
@@ -1260,7 +1257,6 @@ def edit_demographics(client: requests.Session, session: dict,
                 "updated": False,
             }
 
-        # Get existing records or create defaults
         cell_obj = existing_phones.get("CELL_PHONE") or _default_phone_obj(
             "Cell Phone", patient_id)
         home_obj = existing_phones.get("HOME_PHONE") or _default_phone_obj(
@@ -1268,9 +1264,9 @@ def edit_demographics(client: requests.Session, session: dict,
         work_obj = existing_phones.get("WORK_PHONE") or _default_phone_obj(
             "Work Phone", patient_id)
 
-        # Apply changes and set updated flag
         new_cell = changes.get("mobile")
         new_home = changes.get("phone")
+        new_work = changes.get("workPhone")
 
         if new_cell is not None and new_cell != cell_obj.get("phoneNumber", ""):
             cell_obj["phoneNumber"] = new_cell
@@ -1282,7 +1278,11 @@ def edit_demographics(client: requests.Session, session: dict,
             home_obj["phoneNumberWithExt"] = new_home
             home_obj["updated"] = True
 
-        # Build the array in required order: [CELL, HOME, WORK]
+        if new_work is not None and new_work != work_obj.get("phoneNumber", ""):
+            work_obj["phoneNumber"] = new_work
+            work_obj["phoneNumberWithExt"] = new_work
+            work_obj["updated"] = True
+
         arr = [cell_obj, home_obj, work_obj]
         tab1["phoneNumbersArr"] = json.dumps(arr)
 
