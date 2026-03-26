@@ -213,6 +213,10 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             image_bytes = _b64.b64decode(image_b64)
             return upload_profile_picture(client, session, patient_id, image_bytes)
 
+        elif action == "save-communication-notes":
+            notes = input_data.get("notes", "")
+            return save_communication_notes(client, session, patient_id, notes)
+
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
@@ -227,6 +231,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "read-parent-info", "save-parent-info",
                                  "read-structured-data", "save-structured-data",
                                  "upload-insurance-card", "upload-profile-picture",
+                                 "save-communication-notes",
                              ]}}
 
 
@@ -424,6 +429,10 @@ def get_patient_info(client: requests.Session, session: dict,
                         "id": obj.get("id"),
                         "phoneNumber": obj.get("phoneNumber", ""),
                         "ext": obj.get("ext"),
+                        "voiceEnabled": obj.get("voiceEnabled", False),
+                        "textEnabled": obj.get("textEnabled", False),
+                        "leaveMessage": obj.get("leaveMessage"),
+                        "description": obj.get("description", ""),
                     }
             parsed["phoneList"] = phone_list
         except Exception:
@@ -1084,7 +1093,11 @@ def _build_contact_xml(patient_id: str, contact: dict) -> tuple:
     e.append(_add_element("Email", contact.get("Email", "")))
     e.append(_add_element("dob", contact.get("dob", "")))
     e.append(_add_element("sex", contact.get("sex", "")))
-    e.append(_add_element("workPhone", contact.get("workPhone", "")))
+    work_phone = contact.get("workPhone", "")
+    work_ext = contact.get("workPhoneExt", "")
+    if work_ext and work_phone:
+        work_phone = f"{work_phone}-{work_ext}"
+    e.append(_add_element("workPhone", work_phone))
     e.append(_add_element("Guardian", contact.get("Guardian", "0")))
     e.append(_add_element("IsHippa", contact.get("IsHippa", "0")))
     e.append(_add_element("isEmergencyContact",
@@ -1255,7 +1268,10 @@ def edit_demographics(client: requests.Session, session: dict,
         elif src in current:
             tab2[f] = current[src]
 
-    if "phone" in changes or "mobile" in changes or "workPhone" in changes:
+    phone_prefs = changes.pop("phonePreferences", None)
+    phone_fields_changed = ("phone" in changes or "mobile" in changes
+                            or "workPhone" in changes or phone_prefs)
+    if phone_fields_changed:
         existing_phones = fetch_phone_numbers(client, session, patient_id)
 
         def _default_phone_obj(ptype, patient_id_val):
@@ -1297,13 +1313,42 @@ def edit_demographics(client: requests.Session, session: dict,
 
         if new_work is not None and new_work != work_obj.get("phoneNumber", ""):
             work_obj["phoneNumber"] = new_work
-            work_obj["phoneNumberWithExt"] = new_work
+            ext = changes.get("workPhoneExt", work_obj.get("ext") or "")
+            work_obj["ext"] = ext if ext else None
+            work_obj["phoneNumberWithExt"] = (
+                f"{new_work} X {ext}" if ext else new_work)
             work_obj["updated"] = True
+
+        # Apply phone preferences (voice, text, leaveMessage, ext, description)
+        if phone_prefs and isinstance(phone_prefs, dict):
+            type_map = {"cell": cell_obj, "home": home_obj, "work": work_obj}
+            for ptype, prefs in phone_prefs.items():
+                obj = type_map.get(ptype)
+                if not obj or not isinstance(prefs, dict):
+                    continue
+                if "voiceEnabled" in prefs:
+                    obj["voiceEnabled"] = bool(prefs["voiceEnabled"])
+                    obj["updated"] = True
+                if "textEnabled" in prefs:
+                    obj["textEnabled"] = bool(prefs["textEnabled"])
+                    obj["updated"] = True
+                if "leaveMessage" in prefs:
+                    obj["leaveMessage"] = prefs["leaveMessage"]
+                    obj["updated"] = True
+                if "ext" in prefs:
+                    obj["ext"] = prefs["ext"] if prefs["ext"] else None
+                    num = obj.get("phoneNumber", "")
+                    obj["phoneNumberWithExt"] = (
+                        f"{num} X {prefs['ext']}" if prefs["ext"] else num)
+                    obj["updated"] = True
+                if "description" in prefs:
+                    obj["description"] = prefs["description"][:15]
+                    obj["updated"] = True
 
         arr = [cell_obj, home_obj, work_obj]
         tab1["phoneNumbersArr"] = json.dumps(arr)
 
-    tab1_changed = any(f in changes for f in tab1_fields)
+    tab1_changed = any(f in changes for f in tab1_fields) or phone_fields_changed
     tab2_changed = any(f in changes for f in tab2_fields)
 
     results = {}
@@ -1602,3 +1647,55 @@ def upload_profile_picture(client: requests.Session, session: dict,
     return {"status_code": 200 if ok else 400,
             "body": r.text.strip(),
             "fileName": filename}
+
+
+# ── Communication Notes ───────────────────────────────────────────────────────
+
+def save_communication_notes(client: requests.Session, session: dict,
+                             patient_id: str, notes: str) -> dict:
+    """Save communication notes. Requires full voiceconfig/textconfig with valid IDs.
+
+    The config IDs are server-side records. We use id=0 to indicate
+    no change to voice/text config, only updating the patient notes.
+    """
+    notes = notes[:255]
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    payload = json.dumps({
+        "voiceconfig": {
+            "prefcomm": "Voice", "appointments": "1", "contacttype": "home",
+            "rx": "0", "language": "English", "healthmaintenance": "1",
+            "timetocall": "Morning", "ptstatements": "0", "uid": str(patient_id),
+            "primeplus": "1", "labs": "0", "datemodified": now,
+            "generalnotification": "1", "id": "0",
+        },
+        "textconfig": {
+            "appointments": "1", "contacttype": "cell", "rx": "0",
+            "language": "En", "healthmaintenance": "1", "timetocall": "Morning",
+            "ptstatements": "0", "uid": str(patient_id), "primeplus": "1",
+            "labs": "0", "datemodified": now, "generalnotification": "1", "id": "0",
+        },
+        "user": {"id": str(patient_id), "emailupdated": "no"},
+        "patient": {
+            "id": str(patient_id),
+            "lognotes": notes,
+            "optout": "0",
+            "textenabled": "1",
+            "voiceenabled": "1",
+            "isptoptsout": "0",
+            "enableletters": "0",
+        },
+        "ptDetails": {},
+        "publicityCode": 0,
+        "h2hEnabled": False,
+        "contacttypeoptions": [],
+    })
+    post_body = f"record={urllib.parse.quote(payload)}"
+    hdrs = _get_headers(session)
+    url = _make_url(
+        "/mobiledoc/jsp/webemr/toppanel/voice/savePtCommunications.jsp",
+        session, post_body=post_body)
+    r = client.post(url, data={"record": payload}, headers=hdrs)
+    r.raise_for_status()
+    ok = "success" in r.text.lower()
+    return {"status_code": 200 if ok else 400, "body": r.text.strip()}
+
