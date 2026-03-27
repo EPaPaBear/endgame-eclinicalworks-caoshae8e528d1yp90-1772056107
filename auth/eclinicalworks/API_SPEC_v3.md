@@ -935,39 +935,72 @@ Direct race, language, or ethnicity save using resolved IDs from `lrte-lookup`.
 
 ### `save-structured-data`
 
-Save Additional Information structured data fields. Only include fields to change — others are preserved.
+Save Additional Information structured data fields. Only include fields to change — others are preserved. Field definitions are fetched dynamically from ECW, so any new fields added to the tenant work automatically.
 
 **Input:**
 ```json
 {
-  "patient_id": "298724",
+  "patient_id": "299227",
   "action": "save-structured-data",
   "structured_data": {
     "Homeless": "Yes",
-    "Veteran": "No",
-    "Public Housing": "Yes",
-    "Uninsured": "No"
+    "Homeless Status": "Shelter",
+    "Inc & Size Collected": "Yes",
+    "Household income": "5000",
+    "Income Frequency": "Monthly",
+    "Family size": "4",
+    "Applied for SFDP?": "Yes"
   }
 }
 ```
 
-| Field | Values | Description |
-|---|---|---|
-| `Homeless` | `"Yes"` / `"No"` | |
-| `Seasonal Agricultural Worker` | `"Yes"` / `"No"` | |
-| `Migrant Agricultural Worker` | `"Yes"` / `"No"` | |
-| `Veteran` | `"Yes"` / `"No"` | |
-| `Public Housing` | `"Yes"` / `"No"` | |
-| `Uninsured` | `"Yes"` / `"No"` | |
-| `Disability` | `"Yes"` / `"No"` | |
-| `Substance Abuse` | `"Yes"` / `"No"` | |
-| `Limited English` | `"Yes"` / `"No"` | |
-| `Registered to vote?` | `"Yes"` / `"No"` | |
-| `SHC Patient` | `"Yes"` / `"No"` | |
-| `Last Registration Update` | `MM-YYYY` | |
-| `Monthly Estimated Income` | number | |
-| `Family Size` | number | |
-| `Primary Dentist` | text | |
+**Parent fields** (Yes/No checkboxes):
+
+| Field | Values |
+|---|---|
+| `Homeless` | `"Yes"` / `"No"` |
+| `Seasonal Agricultural Worker` | `"Yes"` / `"No"` |
+| `Migrant Agricultural Worker` | `"Yes"` / `"No"` |
+| `Veteran` | `"Yes"` / `"No"` |
+| `Public Housing` | `"Yes"` / `"No"` |
+| `Uninsured` | `"Yes"` / `"No"` |
+| `Inc & Size Collected` | `"Yes"` / `"No"` |
+| `Applied for SFDP?` | `"Yes"` / `"No"` |
+| `Transportation Services Needed` | `"Yes"` / `"No"` |
+| `Disability` | `"Yes"` / `"No"` |
+| `Substance Abuse` | `"Yes"` / `"No"` |
+| `Limited English` | `"Yes"` / `"No"` |
+| `Immigrant?` | `"Yes"` / `"No"` |
+| `SDHC Opt-Out` | `"Yes"` / `"No"` |
+| `SHC Employee` | `"Yes"` / `"No"` |
+| `SHC Patient` | `"Yes"` / `"No"` |
+| `Pain Management Program?:` | `"Yes"` / `"No"` |
+| `Self Pay` | `"Yes"` / `"No"` |
+
+**Child/subfields** (activated by parent's Yes/No value):
+
+| Field | Parent | Appears when | Values |
+|---|---|---|---|
+| `Homeless Status` | Homeless | Yes | `"Doubled-Up"` `"Street"` `"Shelter"` `"Transitional Housing"` `"Other"` `"Unknown"` `"Permanent Supportive Housing"` |
+| `Date` | Inc & Size Collected | Yes | `MM/YYYY` |
+| `Household income` | Inc & Size Collected | Yes | number |
+| `Income Frequency` | Inc & Size Collected | Yes | `"Monthly"` `"Annual"` etc. |
+| `Family size` | Inc & Size Collected | Yes | number (1-100) |
+| `Date declined` | Inc & Size Collected | No | `MM/DD/YYYY` |
+| `SFDP Date declined` | Applied for SFDP? | No | `MM/DD/YYYY` |
+| `Would you be interested in immigration resources?` | Immigrant? | Yes | `"Yes"` / `"No"` |
+| `Would you be interested an informational workshop on immigration options?` | Immigrant? | Yes | `"Yes"` / `"No"` |
+
+**Other fields** (text/number, no parent):
+
+| Field | Values |
+|---|---|
+| `Last Registration Update` | `MM-YYYY` |
+| `Monthly Estimated Income` | number |
+| `Family Size` | number |
+| `Primary Dentist` | text |
+
+> **Elastic:** Field IDs are resolved dynamically at save time. New structured data fields added to the ECW tenant will work without code changes — just use the exact field name as shown in the UI.
 
 Supports notes on any field: `{ "value": "Yes", "notes": "Some comment" }`.
 

@@ -1482,18 +1482,30 @@ def edit_income(client: requests.Session, session: dict,
 
 # ── Structured Data (Additional Information) ──────────────────────────────────
 
-STRUCTURED_DATA_IDS = {
-    "Homeless": "3799",
-    "Seasonal Agricultural Worker": "3797",
-    "Migrant Agricultural Worker": "3798",
-    "Veteran": "3796",
-    "Public Housing": "3815",
-    "Uninsured": "13242",
-    "Last Registration Update": "12595",
-    "Monthly Estimated Income": "12594",
-    "Family Size": "12593",
-    "Primary Dentist": "13030",
-}
+def _fetch_struct_detail(client: requests.Session, session: dict,
+                         patient_id: str) -> list:
+    """Fetch full structured data definitions with IDs, types, and parent/child relationships."""
+    r = _post(client, session,
+              f"/mobiledoc/jsp/catalog/xml/getStructDataDetail.jsp"
+              f"?itemId=0&catId=0&encId={patient_id}&dataTable=structDemographics"
+              f"&community=yes&PmtPlanId=0&woundId=1&data=yes",
+              {"StructData": ""})
+    r.raise_for_status()
+    # Parse items via regex — _parse_soap_xml collapses duplicate <item> tags
+    items = []
+    for m in re.finditer(r'<item>(.*?)</item>', r.text, re.DOTALL):
+        chunk = m.group(1)
+        item = {}
+        for field in ('Id', 'name', 'type', 'parentId', 'value', 'valueId', 'notes'):
+            fm = re.search(rf'<{field}>(.*?)</{field}>', chunk, re.DOTALL)
+            if fm:
+                val = fm.group(1).strip()
+                if field == 'name':
+                    val = val.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+                item[field] = val
+        if item.get('Id') and item.get('name'):
+            items.append(item)
+    return items
 
 
 def get_structured_data(client: requests.Session, session: dict,
@@ -1506,34 +1518,76 @@ def get_structured_data(client: requests.Session, session: dict,
     r = client.post(url, headers=hdrs)
     r.raise_for_status()
     items = r.json() if r.text.strip() else []
-    return {item["item"]: item.get("value", "") for item in items
-            if isinstance(item, dict) and "item" in item}
+    result = {}
+    for item in items:
+        if not isinstance(item, dict) or "item" not in item:
+            continue
+        name = item["item"]
+        value = item.get("value", "")
+        parent = item.get("parentId", "0")
+        if parent and parent != "0":
+            # Child field — nest under parent
+            if name not in result:
+                result[name] = value
+        else:
+            result[name] = value
+    return result
 
 
 def save_structured_data(client: requests.Session, session: dict,
                          patient_id: str, fields: dict) -> dict:
-    # Read current values first — ECW expects ALL items in the save, not just changes
-    current = get_structured_data(client, session, patient_id)
+    # Fetch all field definitions dynamically (gets IDs, including new fields)
+    detail_items = _fetch_struct_detail(client, session, patient_id)
 
-    # Merge changes into current
+    # Build name→id map and parent→triggerFlag map for valueId resolution
+    name_to_id = {}
+    parent_trigger_map = {}  # parent_id → {trigger_value: triggerFlag}
+    for item in detail_items:
+        if isinstance(item, dict):
+            name = item.get("name", "")
+            detail_id = item.get("Id", "")
+            if name and detail_id:
+                name_to_id[name] = detail_id
+            # Child items have triggerFlag — map parent→value→triggerFlag
+            parent_id = item.get("parentId", "0")
+            trigger_flag = item.get("triggerFlag", "")
+            trigger_val = item.get("trigger", "")
+            if parent_id and parent_id != "0" and trigger_flag and trigger_flag != "-1":
+                if parent_id not in parent_trigger_map:
+                    parent_trigger_map[parent_id] = {}
+                # Map the trigger value (e.g. "Yes") to its triggerFlag ID
+                if trigger_val:
+                    parent_trigger_map[parent_id][trigger_val] = trigger_flag
+                else:
+                    parent_trigger_map[parent_id]["_default"] = trigger_flag
+
+    # Read current values to preserve unchanged fields
+    current = get_structured_data(client, session, patient_id)
     merged = dict(current)
     for name, value in fields.items():
         merged[name] = value
 
+    # Build XML for all items that have a matching detail ID
     items_xml = []
-    # Send all known items with their current or updated values
-    for name, detail_id in STRUCTURED_DATA_IDS.items():
+    for name, detail_id in name_to_id.items():
         value = merged.get(name, "")
         notes = ""
         if isinstance(value, dict):
             notes = value.get("notes", "")
             value = value.get("value", "")
+        if not value and name not in fields and name not in current:
+            continue
+        # Resolve valueId for parent fields with Yes/No children
+        value_id = ""
+        triggers = parent_trigger_map.get(detail_id, {})
+        if triggers:
+            value_id = triggers.get(str(value), triggers.get("_default", ""))
         items_xml.append(
             f'<item xsi:type="xsd:string">'
             f'<detailId xsi:type="xsd:string">{detail_id}</detailId>'
             f'<value xsi:type="xsd:string"><![CDATA[{value}]]></value>'
             f'<notes xsi:type="xsd:string"><![CDATA[{notes}]]></notes>'
-            f'<valueId xsi:type="xsd:string"/>'
+            f'<valueId xsi:type="xsd:string">{value_id}</valueId>'
             f'</item>')
 
     full_xml = _soap_envelope("".join(items_xml))
