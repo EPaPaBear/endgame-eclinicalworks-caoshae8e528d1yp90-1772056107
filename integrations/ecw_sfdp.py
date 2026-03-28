@@ -144,6 +144,22 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             return update_insurance(
                 client, session, patient_id, pt_ins_id, insurance_data)
 
+        elif action == "expire-sliding-fee":
+            if not patient_id:
+                return {"status_code": 400, "body": {"error": "patient_id required"}}
+            current = get_sliding_fee_schedule(client, session, patient_id)
+            if not isinstance(current, dict) or not current.get("Id"):
+                return {"status_code": 400,
+                        "body": {"error": "No active sliding fee to expire"}}
+            expire_fields = dict(current)
+            expire_fields["ItemId"] = current["Id"]
+            expire_fields["_patient_id"] = patient_id
+            expire_fields.setdefault("IncomeInfo", {})
+            expire_fields.setdefault("MemberInfo", [])
+            result = save_sliding_fee_schedule(
+                client, session, patient_id, expire_fields, expire=True)
+            return result
+
         # -- Scenario orchestrators --
 
         elif action.startswith("scenario-"):
@@ -176,6 +192,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "sliding-history", "sliding-detail",
                                  "other-income-reasons", "find-members",
                                  "get-insurance", "search-carriers", "list-carriers",
+                                 "expire-sliding-fee",
                                  "delete-insurance", "save-insurance-detail",
                                  "add-insurance", "update-insurance",
                                  "scenario-1", "scenario-2", "scenario-5",

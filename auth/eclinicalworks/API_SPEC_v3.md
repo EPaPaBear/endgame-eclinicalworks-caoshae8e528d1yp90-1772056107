@@ -840,25 +840,67 @@ Calculate sliding fee from income data and assign it to the patient. Combines `c
 
 **income_data fields:**
 
-| Field | Type | Required | Default |
-|---|---|---|---|
-| `Income` | string | No | `"0"` |
-| `Dependants` | string | No | `"1"` |
-| `Unit` | string | No | `"Monthly"` |
-| `AssignedDate` | string | No | Auto-calculated |
-| `ExpiryDate` | string | No | Auto-calculated |
-| `IncomeInfo` | object | No | Read from current record |
-| `MemberInfo` | array | No | `[]` |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `Income` | string | No | `"0"` | Income amount |
+| `Dependants` | string | No | `"1"` | Family size |
+| `Unit` | string | No | `"Monthly"` | `"Monthly"`, `"Annual"`, `"Weekly"`, `"Bi-Weekly"` |
+| `AssignedDate` | `YYYY-MM-DD` | No | Auto-calculated | Override start date |
+| `ExpiryDate` | `YYYY-MM-DD` | No | Auto-calculated | Override expiry date |
+| `DocProof` | `"0"` / `"1"` | No | `"0"` | Documentation on Proof of Income checkbox |
+| `NonProofOfIncome` | `"0"` / `"1"` | No | `"0"` | No Proof of Income checkbox |
+| `NoProofReason` | string | No | | Reason when NonProofOfIncome=1: `"Patient refused to disclose"`, `"Patient declined to participate"`, `"Unknown"` |
+| `IncomeInfo` | object | No | Read from current | Income details (see below) |
+| `MemberInfo` | array | No | `[]` | Household members |
+
+**IncomeInfo sub-fields** (inside `income_data.IncomeInfo`):
+
+| Field | Type | Description |
+|---|---|---|
+| `ProofOfIncome` | string | Comma-separated checkbox indices: `"0"` = Proof of Income/Unemployment, `"1"` = Picture Id, `"2"` = Proof of Address. E.g. `"0,1,2"` for all three. |
+
+**Example with no proof of income:**
+```json
+{
+  "action": "edit-income",
+  "patient_id": "299227",
+  "income_data": {
+    "Income": "3000",
+    "Dependants": "2",
+    "Unit": "Monthly",
+    "NonProofOfIncome": "1",
+    "NoProofReason": "Patient declined to participate"
+  }
+}
+```
+
+**Example with all income status checkboxes:**
+```json
+{
+  "action": "edit-income",
+  "patient_id": "299227",
+  "income_data": {
+    "Income": "5000",
+    "Dependants": "3",
+    "Unit": "Monthly",
+    "DocProof": "1",
+    "IncomeInfo": {
+      "ProofOfIncome": "0,1,2"
+    }
+  }
+}
+```
 
 **Response:**
 ```json
 {
   "status_code": 200,
-  "body": "...",
+  "body": { "status": "success" },
   "calculated": {
-    "Type": "...",
-    "PovertyLevel": "...",
-    "FeeSchId": "..."
+    "AssignedType": "D",
+    "PovertyLevel": "171.0",
+    "FeeSchId": "76",
+    "FeeSchedule": "2025 Slide D"
   }
 }
 ```
@@ -1003,6 +1045,130 @@ Save Additional Information structured data fields. Only include fields to chang
 > **Elastic:** Field IDs are resolved dynamically at save time. New structured data fields added to the ECW tenant will work without code changes — just use the exact field name as shown in the UI.
 
 Supports notes on any field: `{ "value": "Yes", "notes": "Some comment" }`.
+
+---
+
+### `save-communication-settings`
+
+Update Patient Communication Settings — change which phone receives voice calls and texts, enable/disable voice/text, set notes, and configure reminder types.
+
+**Input:**
+```json
+{
+  "patient_id": "299227",
+  "action": "save-communication-settings",
+  "voice_phone": "home",
+  "text_phone": "cell",
+  "voice_enabled": "1",
+  "text_enabled": "1",
+  "notes": "Patient prefers morning calls only",
+  "time_to_call": "Morning",
+  "reminders": {
+    "appointments": "1",
+    "labs": "1",
+    "health_maintenance": "1",
+    "rx": "1",
+    "general_notification": "1",
+    "primeplus": "1"
+  }
+}
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `voice_phone` | string | No | `"cell"` | Phone for voice calls: `"cell"`, `"home"`, `"work"` |
+| `text_phone` | string | No | `"cell"` | Phone for text messages: `"cell"`, `"home"`, `"work"` |
+| `voice_enabled` | `"0"` / `"1"` | No | `"1"` | Enable voice calls |
+| `text_enabled` | `"0"` / `"1"` | No | `"1"` | Enable text messages |
+| `notes` | string | No | `""` | Communication notes (max 255 chars) |
+| `time_to_call` | string | No | `"Morning"` | `"Morning"`, `"Afternoon"`, `"Evening"` |
+| `voice_language` | string | No | `"English"` | Voice language: `"English"`, `"Spanish"` |
+| `text_language` | string | No | `"En"` | Text language: `"En"`, `"Es"` |
+| `reminders` | object | No | | Reminder type toggles (see below) |
+
+**Reminder types** (inside `reminders`):
+
+| Field | Default | Description |
+|---|---|---|
+| `appointments` | `"1"` | Appointment reminders |
+| `labs` | `"0"` | Lab results |
+| `health_maintenance` | `"1"` | Health maintenance |
+| `rx` | `"0"` | Rx confirmation |
+| `general_notification` | `"1"` | General notifications |
+| `primeplus` | `"1"` | healow Prime+ notifications |
+| `pt_statements` | `"0"` | Patient statements |
+
+**Response:** `{ "status_code": 200, "body": "success" }`
+
+---
+
+### `send-sms`
+
+Send an SMS text message to a patient via ECW's messaging system.
+
+**Input:**
+```json
+{
+  "patient_id": "299227",
+  "action": "send-sms",
+  "message": "Your appointment is confirmed for tomorrow at 10:00 AM."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `message` | string | **Yes** | SMS message text |
+
+The message is sent to the patient's text-enabled phone number. The patient must have text messaging enabled in their Communication Settings.
+
+**Response:** `{ "status_code": 200, "body": { "status": "SUCCESS" } }`
+
+---
+
+### `create-telephone-encounter`
+
+Create a telephone encounter for a patient (Patient Hub → INFO → New Tel Enc).
+
+**Input:**
+```json
+{
+  "patient_id": "299227",
+  "action": "create-telephone-encounter",
+  "caller": "John Smith",
+  "reason": "Clinical Advice",
+  "message": "Patient called regarding medication refill.",
+  "action_taken": "Forwarded to pharmacy for review.",
+  "provider_id": "265964",
+  "facility_id": "22",
+  "assigned_to_id": "297477",
+  "assigned_to_name": "WEDGE,AI"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `caller` | string | No | `""` | Caller name (free text) |
+| `reason` | string | No | `""` | Reason from dropdown (see list below) |
+| `message` | string | No | `""` | Messages text box |
+| `action_taken` | string | No | `""` | Action Taken text box |
+| `notes` | string | No | `""` | Additional notes |
+| `provider_id` | string | No | Current user | Provider ID (use `search-provider` to find) |
+| `facility_id` | string | No | `"0"` | Facility ID |
+| `status` | string | No | `""` | Encounter status |
+| `assigned_to_id` | string | No | Current user | Assigned To user ID |
+| `assigned_to_name` | string | No | `""` | Assigned To display name (`"LAST,FIRST"`) |
+| `priority` | string | No | `"0"` | Priority (0=normal) |
+
+**Valid reasons** (from ECW TelReason dropdown): `Clinical Advice`, `Consult`, `Rx Refills`, `Test results`, `Needs call back from MD`, `Needs referral`, `Medical records request`, `Urgent visit request`, `Returned call`, `Message from another MD`, `No Show Policy`, `Afterhours`, etc.
+
+**Response:**
+```json
+{
+  "status_code": 200,
+  "body": { "status": "success", "encounterID": "3417174", "ticketId": "799543" },
+  "encounterID": "3417174"
+}
+```
 
 ---
 
@@ -1330,6 +1496,24 @@ Return all insurance carriers (no search filter).
 ```
 
 > **Note:** Field names are PascalCase (`Id`, `Name`, `PayorID`, etc.) — not camelCase. Use `Id` for `InsuranceId` when calling `add-insurance`.
+
+---
+
+### `expire-sliding-fee`
+
+Expire the current active sliding fee schedule for a patient.
+
+**Input:**
+```json
+{
+  "action": "expire-sliding-fee",
+  "patient_id": "299227"
+}
+```
+
+No additional fields needed — reads the current sliding fee and marks it as expired.
+
+**Response:** `{ "status_code": 200, "body": { "status": "success" } }`
 
 ---
 

@@ -217,6 +217,19 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             notes = input_data.get("notes", "")
             return save_communication_notes(client, session, patient_id, notes)
 
+        elif action == "save-communication-settings":
+            return save_communication_settings(client, session, patient_id, input_data)
+
+        elif action == "send-sms":
+            message = input_data.get("message", "")
+            if not message:
+                return {"status_code": 400,
+                        "body": {"error": "message is required"}}
+            return send_sms(client, session, patient_id, message)
+
+        elif action == "create-telephone-encounter":
+            return create_telephone_encounter(client, session, patient_id, input_data)
+
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
@@ -231,7 +244,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "read-parent-info", "save-parent-info",
                                  "read-structured-data", "save-structured-data",
                                  "upload-insurance-card", "upload-profile-picture",
-                                 "save-communication-notes",
+                                 "save-communication-notes", "save-communication-settings",
+                                 "send-sms",
+                                 "create-telephone-encounter",
                              ]}}
 
 
@@ -1539,15 +1554,52 @@ def save_structured_data(client: requests.Session, session: dict,
     # Fetch all field definitions dynamically (gets IDs, including new fields)
     detail_items = _fetch_struct_detail(client, session, patient_id)
 
-    # Build name→id map and parent→triggerFlag map for valueId resolution
+    # Build name→(id, type) map and parent→triggerFlag map for valueId resolution
     name_to_id = {}
+    name_to_type = {}
+    id_to_name = {}  # for resolving parent names
     parent_trigger_map = {}  # parent_id → {trigger_value: triggerFlag}
+
+    # First pass: build id→name map
     for item in detail_items:
         if isinstance(item, dict):
             name = item.get("name", "")
             detail_id = item.get("Id", "")
             if name and detail_id:
+                id_to_name[detail_id] = name
+
+    # Second pass: build name→id with parent-qualified names for duplicates
+    seen_names = set()
+    for item in detail_items:
+        if isinstance(item, dict):
+            name = item.get("name", "")
+            detail_id = item.get("Id", "")
+            field_type = item.get("type", "0")
+            parent_id = item.get("parentId", "0")
+            if not name or not detail_id:
+                continue
+
+            # Register under plain name (first wins for top-level, last wins for children)
+            if parent_id == "0":
                 name_to_id[name] = detail_id
+                name_to_type[name] = field_type
+                seen_names.add(name)
+            else:
+                # Child field — also register under "Parent > Child" qualified name
+                parent_name = id_to_name.get(parent_id, "")
+                qualified = f"{parent_name} > {name}" if parent_name else name
+                name_to_id[qualified] = detail_id
+                name_to_type[qualified] = field_type
+                # Only use plain name if no collision
+                if name not in seen_names:
+                    name_to_id[name] = detail_id
+                    name_to_type[name] = field_type
+                    seen_names.add(name)
+                # If collision, remove the plain name mapping (force qualified)
+                elif name in name_to_id and name_to_id[name] != detail_id:
+                    del name_to_id[name]
+                    if name in name_to_type:
+                        del name_to_type[name]
             # Child items have triggerFlag — map parent→value→triggerFlag
             parent_id = item.get("parentId", "0")
             trigger_flag = item.get("triggerFlag", "")
@@ -1561,22 +1613,52 @@ def save_structured_data(client: requests.Session, session: dict,
                 else:
                     parent_trigger_map[parent_id]["_default"] = trigger_flag
 
-    # Read current values to preserve unchanged fields
+    # Must send ALL items — ECW replaces entire structured data on save.
+    # Read current values and merge caller's changes.
     current = get_structured_data(client, session, patient_id)
+
+    # Also read current values from detail (more complete, includes children)
+    current_detail = {}
+    for item in detail_items:
+        if isinstance(item, dict) and item.get("value"):
+            current_detail[item.get("Id", "")] = item["value"]
+
+    # Merge: caller's fields override current
     merged = dict(current)
     for name, value in fields.items():
         merged[name] = value
 
-    # Build XML for all items that have a matching detail ID
     items_xml = []
     for name, detail_id in name_to_id.items():
+        # Value priority: caller's merged value > detail's stored value
         value = merged.get(name, "")
+        if not value:
+            value = current_detail.get(detail_id, "")
         notes = ""
         if isinstance(value, dict):
             notes = value.get("notes", "")
             value = value.get("value", "")
-        if not value and name not in fields and name not in current:
+        if not value:
             continue
+        # Normalize date values based on field type (confirmed from source)
+        field_type = name_to_type.get(name, "0")
+        if field_type == "4" and value:
+            # Type 4 = month-year picker: MM-YYYY (hyphen, no day)
+            # Source: closeMonthYearPicker → month + "-" + year
+            value = value.replace("/", "-")
+            parts = value.split("-")
+            if len(parts) == 3:
+                if len(parts[0]) == 4:
+                    value = f"{parts[1]}-{parts[0]}"  # YYYY-MM-DD -> MM-YYYY
+                else:
+                    value = f"{parts[0]}-{parts[2]}"  # MM-DD-YYYY -> MM-YYYY
+        elif field_type == "2" and value:
+            # Type 2 = full date: MM/DD/YYYY (slashes)
+            # Source: validateStructDataDate → moment(value, ["MM/DD/YYYY"], true)
+            value = value.replace("-", "/")
+            parts = value.split("/")
+            if len(parts) == 3 and len(parts[0]) == 4:
+                value = f"{parts[1]}/{parts[2]}/{parts[0]}"  # YYYY/MM/DD -> MM/DD/YYYY
         # Resolve valueId for parent fields with Yes/No children
         value_id = ""
         triggers = parent_trigger_map.get(detail_id, {})
@@ -1752,4 +1834,218 @@ def save_communication_notes(client: requests.Session, session: dict,
     r.raise_for_status()
     ok = "success" in r.text.lower()
     return {"status_code": 200 if ok else 400, "body": r.text.strip()}
+
+
+def save_communication_settings(client: requests.Session, session: dict,
+                                patient_id: str, data: dict) -> dict:
+    """Save communication settings: voice/text phone assignments, notes, reminders."""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    voice_phone = data.get("voice_phone", "cell")  # "cell", "home", "work"
+    text_phone = data.get("text_phone", "cell")
+    voice_enabled = data.get("voice_enabled", "1")
+    text_enabled = data.get("text_enabled", "1")
+    notes = data.get("notes", "")[:255]
+    voice_language = data.get("voice_language", "English")
+    text_language = data.get("text_language", "En")
+    time_to_call = data.get("time_to_call", "Morning")
+
+    # Reminder types
+    reminders = data.get("reminders", {})
+    appointments = reminders.get("appointments", "1")
+    labs = reminders.get("labs", "0")
+    health_maintenance = reminders.get("health_maintenance", "1")
+    rx = reminders.get("rx", "0")
+    general_notification = reminders.get("general_notification", "1")
+    primeplus = reminders.get("primeplus", "1")
+    pt_statements = reminders.get("pt_statements", "0")
+
+    payload = json.dumps({
+        "voiceconfig": {
+            "prefcomm": "Voice",
+            "appointments": appointments,
+            "contacttype": voice_phone,
+            "rx": rx,
+            "language": voice_language,
+            "healthmaintenance": health_maintenance,
+            "timetocall": time_to_call,
+            "ptstatements": pt_statements,
+            "uid": str(patient_id),
+            "primeplus": primeplus,
+            "labs": labs,
+            "datemodified": now,
+            "generalnotification": general_notification,
+            "id": "0",
+        },
+        "textconfig": {
+            "appointments": appointments,
+            "contacttype": text_phone,
+            "rx": rx,
+            "language": text_language,
+            "healthmaintenance": health_maintenance,
+            "timetocall": time_to_call,
+            "ptstatements": pt_statements,
+            "uid": str(patient_id),
+            "primeplus": primeplus,
+            "labs": labs,
+            "datemodified": now,
+            "generalnotification": general_notification,
+            "id": "0",
+        },
+        "user": {"id": str(patient_id), "emailupdated": "no"},
+        "patient": {
+            "id": str(patient_id),
+            "lognotes": notes,
+            "optout": "0",
+            "textenabled": text_enabled,
+            "voiceenabled": voice_enabled,
+            "isptoptsout": "0",
+            "enableletters": "0",
+        },
+        "ptDetails": {},
+        "publicityCode": 0,
+        "h2hEnabled": False,
+        "contacttypeoptions": [],
+    })
+    post_body = f"record={urllib.parse.quote(payload)}"
+    hdrs = _get_headers(session)
+    url = _make_url(
+        "/mobiledoc/jsp/webemr/toppanel/voice/savePtCommunications.jsp",
+        session, post_body=post_body)
+    r = client.post(url, data={"record": payload}, headers=hdrs)
+    r.raise_for_status()
+    ok = "success" in r.text.lower()
+    return {"status_code": 200 if ok else 400, "body": r.text.strip()}
+
+
+# ── Send SMS ──────────────────────────────────────────────────────────────────
+
+def _text_to_utf16be_hex(text: str) -> str:
+    """Encode text to UTF-16BE hex string (ECW's SMS message format)."""
+    return text.encode("utf-16-be").hex()
+
+
+def send_sms(client: requests.Session, session: dict,
+             patient_id: str, message: str) -> dict:
+    hex_msg = _text_to_utf16be_hex(message)
+    sms_xml = (
+        f'<?xml version="1.0"?>'
+        f'<Templates>'
+        f'<EnglishTemplate><![CDATA[{hex_msg}]]></EnglishTemplate>'
+        f'<OriginalTemplate><![CDATA[{hex_msg}]]></OriginalTemplate>'
+        f'<SpanishTemplate><![CDATA[{hex_msg}]]></SpanishTemplate>'
+        f'</Templates>'
+    )
+    data = {
+        "action": "sendtextsms",
+        "textNotification": "1",
+        "voiceNotification": "0",
+        "smsMessage": sms_xml,
+        "smsTemplateName": "",
+        "PatientIds": patient_id,
+        "TrUserId": session["tr_user_id"],
+        "EncIds": "",
+        "smstemplateid": "0",
+        "smsMsgType": "",
+        "Flag": "",
+        "msgSource": "Patient Comm Settings",
+        "isSecured": "",
+        "msgserver": BASE_URL,
+    }
+    post_body = urllib.parse.urlencode(data)
+    url = _make_url("/mobiledoc/jsp/webemr/singlesend/singleSend.jsp",
+                    session, post_body=post_body)
+    hdrs = _get_headers(session)
+    r = client.post(url, data=data, headers=hdrs)
+    r.raise_for_status()
+    return _soap_result(r)
+
+
+# ── Telephone Encounter ───────────────────────────────────────────────────────
+
+def create_telephone_encounter(client: requests.Session, session: dict,
+                               patient_id: str, data: dict) -> dict:
+    from datetime import datetime as _dt
+    now = _dt.now()
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%I:%M:%S %p")
+
+    caller = data.get("caller", "")
+    reason = data.get("reason", "")
+    message = data.get("message", "")
+    action_taken = data.get("action_taken", "")
+    notes = data.get("notes", "")
+    provider_id = data.get("provider_id", session["tr_user_id"])
+    facility_id = data.get("facility_id", "0")
+    status = data.get("status", "")
+    assigned_to_id = data.get("assigned_to_id", session["tr_user_id"])
+    assigned_to_name = data.get("assigned_to_name", "")
+    priority = data.get("priority", "0")
+
+    enc_xml = (
+        f'<encounter xsi:type="xsd:string">'
+        f'<id xsi:type="xsd:int">{patient_id}</id>'
+        f'<date xsi:type="xsd:string">{date_str}</date>'
+        f'<time xsi:type="xsd:string">{time_str}</time>'
+        f'<endTime xsi:type="xsd:string">{time_str}</endTime>'
+        f'<DateTimeEdit xsi:type="xsd:string">true</DateTimeEdit>'
+        f'<visitType xsi:type="xsd:string">TEL</visitType>'
+        f'<reason xsi:type="xsd:string">{_escape_xml(reason)}</reason>'
+        f'<doctorid xsi:type="xsd:int">{provider_id}</doctorid>'
+        f'<status xsi:type="xsd:string">{_escape_xml(status)}</status>'
+        f'<billing xsi:type="xsd:string"></billing>'
+        f'<encType xsi:type="xsd:int">2</encType>'
+        f'<notes xsi:type="xsd:string"></notes>'
+        f'<visitSubType xsi:type="xsd:string"></visitSubType>'
+        f'<facilityId xsi:type="xsd:int">{facility_id}</facilityId>'
+        f'<POS xsi:type="xsd:int">50</POS>'
+        f'<arrTime xsi:type="xsd:string">00:00:00</arrTime>'
+        f'<depTime xsi:type="xsd:string">00:00:00</depTime>'
+        f'<ptFlag xsi:type="xsd:int">0</ptFlag>'
+        f'<Dx xsi:type="xsd:string"></Dx>'
+        f'<visitTypeOverriden xsi:type="xsd:string"></visitTypeOverriden>'
+        f'<refPrName xsi:type="xsd:string"></refPrName>'
+        f'<refPrId xsi:type="xsd:string"></refPrId>'
+        f'<DeptId xsi:type="xsd:int">0</DeptId>'
+        f'<UserInfo xsi:type="xsd:string"></UserInfo>'
+        f'<resourceId xsi:type="xsd:string"></resourceId>'
+        f'<resFacFilterId xsi:type="xsd:int">0</resFacFilterId>'
+        f'<practiceId xsi:type="xsd:int">0</practiceId>'
+        f'<transitionofcare xsi:type="xsd:int">0</transitionofcare>'
+        f'<isTelEncWeb xsi:type="xsd:int">1</isTelEncWeb>'
+        f'<ptEmail xsi:type="xsd:string"></ptEmail>'
+        f'<populatetelencdata xsi:type="xsd:string">true</populatetelencdata>'
+        f'</encounter>')
+
+    tel_xml = (
+        f'<telencounter xsi:type="xsd:string">'
+        f'<encounterid xsi:type="xsd:int">0</encounterid>'
+        f'<uid xsi:type="xsd:int">{session["tr_user_id"]}</uid>'
+        f'<caller xsi:type="xsd:string">{_escape_xml(caller)}</caller>'
+        f'<message xsi:type="xsd:string">{_escape_xml(message)}</message>'
+        f'<actiontaken xsi:type="xsd:string">{_escape_xml(action_taken)}</actiontaken>'
+        f'<notes xsi:type="xsd:string">{_escape_xml(notes)}</notes>'
+        f'<priority xsi:type="xsd:int">{priority}</priority>'
+        f'<AssignedToId xsi:type="xsd:string">{assigned_to_id}</AssignedToId>'
+        f'<assignedTo xsi:type="xsd:string">{_escape_xml(assigned_to_name)}</assignedTo>'
+        f'<pmcid xsi:type="xsd:int">0</pmcid>'
+        f'<LoginID xsi:type="xsd:int">{session["tr_user_id"]}</LoginID>'
+        f'<virtualflag xsi:type="xsd:string">0</virtualflag>'
+        f'<UIScreenName xsi:type="xsd:string">web_TJellyDetailViewid</UIScreenName>'
+        f'<TopClass xsi:type="xsd:string">telenc_assignedTolookup</TopClass>'
+        f'<isAddressed xsi:type="xsd:string">false</isAddressed>'
+        f'</telencounter>')
+
+    full_xml = _soap_envelope(f'{enc_xml}{tel_xml}')
+    post_data = {"TrUserId": session["tr_user_id"], "FormData": full_xml}
+    post_body = urllib.parse.urlencode(post_data)
+    url = _make_url("/mobiledoc/jsp/catalog/xml/newEncounter.jsp",
+                    session, post_body=post_body)
+    hdrs = _get_headers(session)
+    r = client.post(url, data=post_data, headers=hdrs)
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    enc_id = ret.get("encounterID", "") if isinstance(ret, dict) else ""
+    return _soap_result(r, {"encounterID": enc_id})
 
