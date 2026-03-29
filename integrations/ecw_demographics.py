@@ -1836,72 +1836,78 @@ def save_communication_notes(client: requests.Session, session: dict,
     return {"status_code": 200 if ok else 400, "body": r.text.strip()}
 
 
+def _fetch_communication_data(client: requests.Session, session: dict,
+                              patient_id: str) -> tuple:
+    """Fetch existing communication configs. Returns (voiceconfig, textconfig, patient, user)."""
+    hdrs = _get_headers(session)
+    url = _make_url(
+        f"/mobiledoc/jsp/webemr/toppanel/voice/fetchpatientcommunicationdata.jsp"
+        f"?uid={patient_id}",
+        session)
+    r = client.post(url, headers=hdrs)
+    r.raise_for_status()
+    data = r.json() if r.text.strip() else []
+    voice = data[0] if len(data) > 0 and isinstance(data[0], dict) else {}
+    text = data[1] if len(data) > 1 and isinstance(data[1], dict) else {}
+    patient = data[2] if len(data) > 2 and isinstance(data[2], dict) else {}
+    user = data[3] if len(data) > 3 and isinstance(data[3], dict) else {}
+    return voice, text, patient, user
+
+
 def save_communication_settings(client: requests.Session, session: dict,
                                 patient_id: str, data: dict) -> dict:
     """Save communication settings: voice/text phone assignments, notes, reminders."""
     now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    voice_phone = data.get("voice_phone", "cell")  # "cell", "home", "work"
-    text_phone = data.get("text_phone", "cell")
-    voice_enabled = data.get("voice_enabled", "1")
-    text_enabled = data.get("text_enabled", "1")
-    notes = data.get("notes", "")[:255]
-    voice_language = data.get("voice_language", "English")
-    text_language = data.get("text_language", "En")
-    time_to_call = data.get("time_to_call", "Morning")
+    # Load existing configs to get record IDs and preserve unchanged fields
+    cur_voice, cur_text, cur_patient, cur_user = _fetch_communication_data(
+        client, session, patient_id)
+
+    # Merge caller's changes into existing configs
+    voice_cfg = dict(cur_voice) if cur_voice else {
+        "prefcomm": "Voice", "uid": str(patient_id), "id": "0"}
+    text_cfg = dict(cur_text) if cur_text else {
+        "uid": str(patient_id), "id": "0"}
+    patient_cfg = dict(cur_patient) if cur_patient else {"id": str(patient_id)}
+    user_cfg = dict(cur_user) if cur_user else {"id": str(patient_id)}
+
+    if "voice_phone" in data:
+        voice_cfg["contacttype"] = data["voice_phone"]
+    if "text_phone" in data:
+        text_cfg["contacttype"] = data["text_phone"]
+    if "voice_language" in data:
+        voice_cfg["language"] = data["voice_language"]
+    if "text_language" in data:
+        text_cfg["language"] = data["text_language"]
+    if "time_to_call" in data:
+        voice_cfg["timetocall"] = data["time_to_call"]
+        text_cfg["timetocall"] = data["time_to_call"]
+    if "voice_enabled" in data:
+        patient_cfg["voiceenabled"] = data["voice_enabled"]
+    if "text_enabled" in data:
+        patient_cfg["textenabled"] = data["text_enabled"]
+    if "notes" in data:
+        patient_cfg["lognotes"] = data["notes"][:255]
 
     # Reminder types
     reminders = data.get("reminders", {})
-    appointments = reminders.get("appointments", "1")
-    labs = reminders.get("labs", "0")
-    health_maintenance = reminders.get("health_maintenance", "1")
-    rx = reminders.get("rx", "0")
-    general_notification = reminders.get("general_notification", "1")
-    primeplus = reminders.get("primeplus", "1")
-    pt_statements = reminders.get("pt_statements", "0")
+    for key, xml_key in [("appointments", "appointments"), ("labs", "labs"),
+                         ("health_maintenance", "healthmaintenance"),
+                         ("rx", "rx"), ("general_notification", "generalnotification"),
+                         ("primeplus", "primeplus"), ("pt_statements", "ptstatements")]:
+        if key in reminders:
+            voice_cfg[xml_key] = reminders[key]
+            text_cfg[xml_key] = reminders[key]
+
+    voice_cfg["datemodified"] = now
+    text_cfg["datemodified"] = now
+    user_cfg["emailupdated"] = "no"
 
     payload = json.dumps({
-        "voiceconfig": {
-            "prefcomm": "Voice",
-            "appointments": appointments,
-            "contacttype": voice_phone,
-            "rx": rx,
-            "language": voice_language,
-            "healthmaintenance": health_maintenance,
-            "timetocall": time_to_call,
-            "ptstatements": pt_statements,
-            "uid": str(patient_id),
-            "primeplus": primeplus,
-            "labs": labs,
-            "datemodified": now,
-            "generalnotification": general_notification,
-            "id": "0",
-        },
-        "textconfig": {
-            "appointments": appointments,
-            "contacttype": text_phone,
-            "rx": rx,
-            "language": text_language,
-            "healthmaintenance": health_maintenance,
-            "timetocall": time_to_call,
-            "ptstatements": pt_statements,
-            "uid": str(patient_id),
-            "primeplus": primeplus,
-            "labs": labs,
-            "datemodified": now,
-            "generalnotification": general_notification,
-            "id": "0",
-        },
-        "user": {"id": str(patient_id), "emailupdated": "no"},
-        "patient": {
-            "id": str(patient_id),
-            "lognotes": notes,
-            "optout": "0",
-            "textenabled": text_enabled,
-            "voiceenabled": voice_enabled,
-            "isptoptsout": "0",
-            "enableletters": "0",
-        },
+        "voiceconfig": voice_cfg,
+        "textconfig": text_cfg,
+        "user": user_cfg,
+        "patient": patient_cfg,
         "ptDetails": {},
         "publicityCode": 0,
         "h2hEnabled": False,

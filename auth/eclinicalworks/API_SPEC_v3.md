@@ -988,6 +988,7 @@ Save Additional Information structured data fields. Only include fields to chang
     "Homeless": "Yes",
     "Homeless Status": "Shelter",
     "Inc & Size Collected": "Yes",
+    "Inc & Size Collected > Date": "03-2026",
     "Household income": "5000",
     "Income Frequency": "Monthly",
     "Family size": "4",
@@ -1024,7 +1025,7 @@ Save Additional Information structured data fields. Only include fields to chang
 | Field | Parent | Appears when | Values |
 |---|---|---|---|
 | `Homeless Status` | Homeless | Yes | `"Doubled-Up"` `"Street"` `"Shelter"` `"Transitional Housing"` `"Other"` `"Unknown"` `"Permanent Supportive Housing"` |
-| `Date` | Inc & Size Collected | Yes | `MM/YYYY` |
+| `Inc & Size Collected > Date` | Inc & Size Collected | Yes | `MM-YYYY` (must use qualified name) |
 | `Household income` | Inc & Size Collected | Yes | number |
 | `Income Frequency` | Inc & Size Collected | Yes | `"Monthly"` `"Annual"` etc. |
 | `Family size` | Inc & Size Collected | Yes | number (1-100) |
@@ -1032,6 +1033,12 @@ Save Additional Information structured data fields. Only include fields to chang
 | `SFDP Date declined` | Applied for SFDP? | No | `MM/DD/YYYY` |
 | `Would you be interested in immigration resources?` | Immigrant? | Yes | `"Yes"` / `"No"` |
 | `Would you be interested an informational workshop on immigration options?` | Immigrant? | Yes | `"Yes"` / `"No"` |
+
+> **Qualified names:** Some child fields share the same name (e.g. "Date" exists under multiple parents). For these, use the `"Parent > Child"` format: `"Inc & Size Collected > Date"`. Uniquely named children like "Household income" or "Family size" work without qualification.
+
+**Date formats by field type:**
+- Month-year fields (e.g. `Inc & Size Collected > Date`, `Last Registration Update`): use `MM-YYYY` with hyphen (e.g. `"03-2026"`)
+- Full date fields (e.g. `Date declined`, `Date of ineligibility:`): use `MM/DD/YYYY` with slashes (e.g. `"03/26/2026"`)
 
 **Other fields** (text/number, no parent):
 
