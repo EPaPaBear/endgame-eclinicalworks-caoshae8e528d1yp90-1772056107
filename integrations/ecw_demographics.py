@@ -1864,10 +1864,24 @@ def save_communication_settings(client: requests.Session, session: dict,
         client, session, patient_id)
 
     # Merge caller's changes into existing configs
-    voice_cfg = dict(cur_voice) if cur_voice else {
-        "prefcomm": "Voice", "uid": str(patient_id), "id": "0"}
-    text_cfg = dict(cur_text) if cur_text else {
-        "uid": str(patient_id), "id": "0"}
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    default_cfg = {
+        "appointments": "1", "contacttype": "cell", "rx": "0",
+        "healthmaintenance": "1", "timetocall": "Morning", "ptstatements": "0",
+        "uid": str(patient_id), "primeplus": "1", "labs": "0",
+        "datemodified": now, "generalnotification": "1", "id": "0",
+    }
+    if cur_voice:
+        voice_cfg = dict(cur_voice)
+    else:
+        # No existing voice record — send minimal config (ECW creates on save)
+        voice_cfg = {"contacttype": "cell", "language": "English",
+                     "uid": str(patient_id)}
+    if cur_text:
+        text_cfg = dict(cur_text)
+    else:
+        text_cfg = {"contacttype": "cell", "language": "En",
+                    "uid": str(patient_id)}
     patient_cfg = dict(cur_patient) if cur_patient else {"id": str(patient_id)}
     user_cfg = dict(cur_user) if cur_user else {"id": str(patient_id)}
 
@@ -2052,6 +2066,14 @@ def create_telephone_encounter(client: requests.Session, session: dict,
     r.raise_for_status()
     parsed = _parse_soap_xml(r.text)
     ret = parsed.get("return", parsed)
-    enc_id = ret.get("encounterID", "") if isinstance(ret, dict) else ""
-    return _soap_result(r, {"encounterID": enc_id})
+    if isinstance(ret, dict):
+        enc_id = ret.get("encounterID", "")
+        ticket_id = ret.get("ticketId", "")
+        status = ret.get("status", "")
+        body = {"status": status, "encounterID": enc_id, "ticketId": ticket_id}
+    else:
+        body = ret
+    soap_status = ret.get("status", "") if isinstance(ret, dict) else ""
+    return {"status_code": 400 if soap_status == "failed" else r.status_code,
+            "body": body}
 
