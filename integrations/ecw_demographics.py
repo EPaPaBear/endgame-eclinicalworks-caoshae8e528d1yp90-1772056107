@@ -46,6 +46,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       read-sliding-fee      - Read current sliding fee assignment
       calculate             - Calculate sliding fee from income/dependants/unit
       search-provider       - Search providers by name
+      search-facility       - Search facilities by name
       get-contacts          - Read patient contacts
       add-contact           - Create a new contact
       update-contact        - Update an existing contact
@@ -58,6 +59,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       save-lrte             - Save structured LRTE data
       read-parent-info      - Read parent info (mother/father/other)
       save-parent-info      - Save parent info
+      create-guarantor      - Create a new guarantor record
+      update-guarantor      - Update an existing guarantor record
     """
     input_data = input_data or {}
     action = input_data.get("action", "read")
@@ -105,6 +108,13 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                 lastname = search.strip()
             return {"providers": search_providers(
                 client, session, lastname, firstname)}
+
+        elif action == "search-facility":
+            return {"facilities": search_facilities(
+                client, session,
+                name=input_data.get("name", ""),
+                facility_type=input_data.get("facility_type", "0"),
+                max_count=int(input_data.get("max_count", 50)))}
 
         elif action == "get-contacts":
             emergency_only = input_data.get("emergency_only", False)
@@ -230,13 +240,28 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
         elif action == "create-telephone-encounter":
             return create_telephone_encounter(client, session, patient_id, input_data)
 
+        elif action == "create-guarantor":
+            guarantor_data = input_data.get("guarantor", {})
+            if not guarantor_data:
+                return {"status_code": 400,
+                        "body": {"error": "guarantor dict is required"}}
+            return create_guarantor(client, session, guarantor_data)
+
+        elif action == "update-guarantor":
+            gr_id = input_data.get("gr_id", "")
+            guarantor_data = input_data.get("guarantor", {})
+            if not gr_id or not guarantor_data:
+                return {"status_code": 400,
+                        "body": {"error": "gr_id and guarantor dict are required"}}
+            return update_guarantor(client, session, gr_id, guarantor_data)
+
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
                              "valid_actions": [
                                  "read", "edit-demographics", "read-combos",
                                  "read-sliding-fee", "calculate",
-                                 "search-provider", "get-contacts",
+                                 "search-provider", "search-facility", "get-contacts",
                                  "add-contact", "update-contact",
                                  "set-responsible-party", "edit-income",
                                  "read-sogi", "save-sogi",
@@ -247,6 +272,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "save-communication-notes", "save-communication-settings",
                                  "send-sms",
                                  "create-telephone-encounter",
+                                 "create-guarantor", "update-guarantor",
                              ]}}
 
 
@@ -337,6 +363,22 @@ def _parse_soap_xml(text: str) -> dict:
         return _xml_to_dict(body)
     except ET.ParseError:
         return {"_raw": text}
+
+
+def _parse_soap_list(text: str, item_tag: str) -> list:
+    """Parse SOAP XML that contains repeated sibling elements (e.g. <facility>).
+    _xml_to_dict collapses these; this function preserves all items."""
+    text = text.strip()
+    if not text:
+        return []
+    try:
+        cleaned = re.sub(r'<(/?)(?:SOAP-ENV|S|soapenv):', lambda m: f'<{m.group(1)}', text)
+        cleaned = re.sub(r'xmlns:[^=]+="[^"]*"', '', cleaned)
+        root = ET.fromstring(cleaned)
+        items = root.findall(f'.//{item_tag}')
+        return [_xml_to_dict(item) for item in items]
+    except ET.ParseError:
+        return []
 
 
 def _soap_result(r, extra: dict = None) -> dict:
@@ -537,17 +579,21 @@ def search_providers(client: requests.Session, session: dict,
     }
     r = client.post(url, headers=hdrs, data=data)
     r.raise_for_status()
-    parsed = _parse_soap_xml(r.text)
-    ret = parsed.get("return", parsed)
-    if isinstance(ret, dict):
-        providers = ret.get("Providers", {})
-        if isinstance(providers, dict):
-            prov_list = providers.get("Provider", [])
-            if isinstance(prov_list, dict):
-                return [prov_list]
-            if isinstance(prov_list, list):
-                return prov_list
-    return []
+    return _parse_soap_list(r.text, "Provider")
+
+
+def search_facilities(client: requests.Session, session: dict,
+                      name: str = "", facility_type: str = "0",
+                      max_count: int = 50) -> list:
+    hdrs = _get_headers(session)
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/edi/getFacilityList.jsp"
+        f"?counter=0&MAXCOUNT={max_count}&callingForm=&name={urllib.parse.quote(name)}"
+        f"&searchby=0&FacilityType={facility_type}",
+        session)
+    r = client.get(url, headers=hdrs)
+    r.raise_for_status()
+    return _parse_soap_list(r.text, "facility")
 
 
 def get_patient_lrte(client: requests.Session, session: dict,
@@ -1447,6 +1493,13 @@ def edit_income(client: requests.Session, session: dict,
 
     calc = calculate_sliding_fee(client, session, income, dependants, unit)
 
+    # When NonProofOfIncome=1, ECW browser recalculates with Income=0/Dependants=0
+    # to get type F (no-proof sliding scale), but preserves the real PovertyLevel.
+    if income_data.get("NonProofOfIncome") == "1":
+        real_poverty = calc.get("PovertyLevel", "")
+        calc = calculate_sliding_fee(client, session, "0", "0", unit)
+        calc["PovertyLevel"] = real_poverty
+
     fields = {**income_data}
     fields["AssignedType"] = calc.get("Type", calc.get("AssignedType", ""))
     fields["PovertyLevel"] = calc.get("PovertyLevel", "")
@@ -1493,6 +1546,118 @@ def edit_income(client: requests.Session, session: dict,
         "ExpiryDate": calc.get("ExpiryDate", ""),
     }
     return result
+
+
+# ── Guarantor CRUD ────────────────────────────────────────────────────────────
+
+def create_guarantor(client: requests.Session, session: dict,
+                     data: dict) -> dict:
+    return _save_guarantor(client, session, "0", data)
+
+
+def update_guarantor(client: requests.Session, session: dict,
+                     gr_id: str, data: dict) -> dict:
+    return _save_guarantor(client, session, gr_id, data)
+
+
+def _save_guarantor(client: requests.Session, session: dict,
+                    uid: str, data: dict) -> dict:
+    # Phase 1: General tab
+    gen_elements = []
+    gen_elements.append(f'<uid xsi:type="xsd:string">{uid}</uid>')
+    gen_elements.append(f'<GrType xsi:type="xsd:string">{data.get("GrType", "1")}</GrType>')
+    gen_elements.append(_add_element("ulname", data.get("lname", ""), cdata=True))
+    gen_elements.append(_add_element("ufname", data.get("fname", ""), cdata=True))
+    gen_elements.append(_add_element("uminitial", data.get("mi", ""), cdata=True))
+    gen_elements.append(_add_element("dob", data.get("dob", "")))
+    gen_elements.append(_add_element("ssn", data.get("ssn", "")))
+    gen_elements.append(_add_element("tel", data.get("cellPhone", "")))
+    gen_elements.append(_add_element("homephone", data.get("homePhone", "")))
+    gen_elements.append(_add_element("sex", data.get("sex", "").lower()))
+    gen_elements.append(_add_element("email", data.get("email", "")))
+    gen_elements.append(_add_element("accountNo", data.get("accountNo", "")))
+
+    gen_xml = f'<guarantor xsi:type="xsd:string">{"".join(gen_elements)}</guarantor>'
+    full_xml = _soap_envelope(gen_xml)
+
+    r = _post(client, session,
+              "/mobiledoc/jsp/uadmin/SaveGrGenData.jsp",
+              {"FormData": full_xml, "oldFormData": ""})
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    new_uid = ret.get("uid", "") if isinstance(ret, dict) else ""
+    status = ret.get("status", "") if isinstance(ret, dict) else ""
+
+    if status != "success" or not new_uid:
+        return _soap_result(r)
+
+    results = {"uid": new_uid, "general": "success"}
+
+    # Phase 2: Address + Employment + Other via individual POSTs
+    addr = data.get("address", {})
+    street = data.get("streetAddress", {})
+    emp = data.get("employment", {})
+    notes = data.get("notes", "")
+
+    def _addr_xml(a, tag):
+        return (f'<{tag}>'
+                f'{_add_element("AddressLine1", a.get("address1", ""), cdata=True)}'
+                f'{_add_element("AddressLine2", a.get("address2", ""), cdata=True)}'
+                f'{_add_element("city", a.get("city", ""), cdata=True)}'
+                f'{_add_element("state", a.get("state", ""), cdata=True)}'
+                f'{_add_element("zip", a.get("zip", ""), cdata=True)}'
+                f'{_add_element("Country", a.get("country", ""), cdata=True)}'
+                f'</{tag}>')
+
+    # Address
+    addr_xml = _soap_envelope(
+        f'<guarantor xsi:type="xsd:string">'
+        f'<uid xsi:type="xsd:string">{new_uid}</uid>'
+        f'{_addr_xml(addr, "MailingAddress")}'
+        f'{_addr_xml(street, "StreetAddress")}'
+        f'</guarantor>')
+    r = _post(client, session, "/mobiledoc/jsp/uadmin/setGrAddresses.jsp",
+              {"FormData": addr_xml})
+    results["address"] = "success" if "success" in r.text.lower() else r.text[:200]
+
+    # Employment
+    emp_addr = emp.get("address", {})
+    emp_xml = _soap_envelope(
+        f'<guarantor xsi:type="xsd:string">'
+        f'<uid xsi:type="xsd:string">{new_uid}</uid>'
+        f'<Employment>'
+        f'{_add_element("name", emp.get("name", ""))}'
+        f'{_add_element("tel", emp.get("phone", ""), cdata=True)}'
+        f'{_add_element("MsgFlag", emp.get("msgFlag", "off"))}'
+        f'{_add_element("empId", emp.get("empId", ""))}'
+        f'<Address>'
+        f'{_add_element("AddressLine1", emp_addr.get("address1", ""), cdata=True)}'
+        f'{_add_element("AddressLine2", emp_addr.get("address2", ""), cdata=True)}'
+        f'{_add_element("city", emp_addr.get("city", ""), cdata=True)}'
+        f'{_add_element("state", emp_addr.get("state", ""), cdata=True)}'
+        f'{_add_element("zip", emp_addr.get("zip", ""), cdata=True)}'
+        f'{_add_element("workPhone", emp_addr.get("workPhone", ""), cdata=True)}'
+        f'{_add_element("workPhoneExt", emp_addr.get("workPhoneExt", ""), cdata=True)}'
+        f'{_add_element("Country", emp_addr.get("country", ""))}'
+        f'</Address>'
+        f'</Employment>'
+        f'</guarantor>')
+    r = _post(client, session, "/mobiledoc/jsp/uadmin/setGrEmpAddress.jsp",
+              {"FormData": emp_xml})
+    results["employment"] = "success" if "success" in r.text.lower() else r.text[:200]
+
+    # Other (notes)
+    misc_xml = _soap_envelope(
+        f'<guarantor xsi:type="xsd:string">'
+        f'<uid xsi:type="xsd:string">{new_uid}</uid>'
+        f'{_add_element("notes", notes, cdata=True)}'
+        f'</guarantor>')
+    r = _post(client, session, "/mobiledoc/jsp/uadmin/setGrMiscData.jsp",
+              {"FormData": misc_xml})
+    results["other"] = "success" if "success" in r.text.lower() else r.text[:200]
+
+    return {"status_code": 200, "body": results}
 
 
 # ── Structured Data (Additional Information) ──────────────────────────────────
