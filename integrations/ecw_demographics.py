@@ -61,6 +61,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       save-parent-info      - Save parent info
       create-guarantor      - Create a new guarantor record
       update-guarantor      - Update an existing guarantor record
+      delete-guarantor      - Delete a guarantor (fails if linked to insurances)
+      search-patient        - Search patients by name and optionally DOB
+      search-guarantor      - Search guarantors by name
     """
     input_data = input_data or {}
     action = input_data.get("action", "read")
@@ -255,6 +258,36 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "gr_id and guarantor dict are required"}}
             return update_guarantor(client, session, gr_id, guarantor_data)
 
+        elif action == "delete-guarantor":
+            gr_id = input_data.get("gr_id", "")
+            if not gr_id:
+                return {"status_code": 400,
+                        "body": {"error": "gr_id is required"}}
+            return delete_guarantor(client, session, gr_id)
+
+        elif action == "search-patient":
+            lastname = input_data.get("lastname", "")
+            firstname = input_data.get("firstname", "")
+            dob = input_data.get("dob", "")
+            status_filter = input_data.get("status", "Active")
+            max_count = int(input_data.get("max_count", 15))
+            if not lastname:
+                return {"status_code": 400,
+                        "body": {"error": "lastname is required"}}
+            return {"patients": search_patients(
+                client, session, lastname, firstname, dob, status_filter, max_count)}
+
+        elif action == "search-guarantor":
+            search = input_data.get("search", "")
+            dob = input_data.get("dob", "")
+            status_filter = input_data.get("status", "All")
+            max_count = int(input_data.get("max_count", 15))
+            if not search:
+                return {"status_code": 400,
+                        "body": {"error": "search is required (LastName or LastName, FirstName)"}}
+            return {"guarantors": search_guarantors(
+                client, session, search, dob, status_filter, max_count)}
+
         else:
             return {"status_code": 400,
                     "body": {"error": f"Unknown action: {action}",
@@ -273,6 +306,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "send-sms",
                                  "create-telephone-encounter",
                                  "create-guarantor", "update-guarantor",
+                                 "delete-guarantor", "search-patient",
+                                 "search-guarantor",
                              ]}}
 
 
@@ -1548,7 +1583,197 @@ def edit_income(client: requests.Session, session: dict,
     return result
 
 
+# ── Patient Search ─────────────────────────────────────────────────────────────
+
+def search_patients(client: requests.Session, session: dict,
+                    lastname: str, firstname: str = "",
+                    dob: str = "", status: str = "Active",
+                    max_count: int = 15) -> list:
+    """Search patients by lastname (required), firstname (optional), and optionally DOB."""
+
+    # DOB: accept YYYY-MM-DD or MM/DD/YYYY, send as MM/DD/YYYY
+    dob_formatted = ""
+    if dob:
+        if "-" in dob and len(dob) == 10:
+            parts = dob.split("-")
+            dob_formatted = f"{parts[1]}/{parts[2]}/{parts[0]}"
+        else:
+            dob_formatted = dob
+
+    data = {
+        "counter": "1",
+        "firstName": firstname,
+        "lastName": lastname,
+        "DOB": "",
+        "SSN": "",
+        "AccountNo": "",
+        "PhoneNo": "",
+        "PreviousName": "",
+        "PreferredName": "",
+        "Email": "",
+        "MedicalRecNo": "",
+        "StatusSearch": status,
+        "enc": "0",
+        "limitstart": "0",
+        "limitrange": str(max_count),
+        "SubscriberNo": "",
+        "AddlSearchBy": "DateOfBirth",
+        "AddlSearchVal": dob_formatted,
+        "MAXCOUNT": str(max_count),
+        "column1": "AllPhones",
+        "column2": "GrName",
+        "column3": "LastAppt",
+        "primarySearchValue": lastname,
+        "device": "webemr",
+        "callFromScreen": "PatientSearch",
+        "userType": "",
+        "action": "Patient",
+        "donorProfileStatus": "2",
+        "ptid": "0",
+        "srcContext": "JELLY_BEAN_PANEL",
+        "SearchBy": "Name",
+        "orderBy": "",
+    }
+    r = _post(client, session, "/mobiledoc/jsp/catalog/xml/getPatients.jsp", data)
+    r.raise_for_status()
+    return _parse_soap_list(r.text, "patient")
+
+
 # ── Guarantor CRUD ────────────────────────────────────────────────────────────
+
+def delete_guarantor(client: requests.Session, session: dict,
+                     gr_id: str) -> dict:
+    """Delete a guarantor. Checks encounter count first. Returns insurance pairs if blocked."""
+    hdrs = _get_headers(session)
+
+    # Step 1: Check encounter count
+    enc_url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getEncCount.jsp?patientId={gr_id}", session)
+    r = client.get(enc_url, headers=hdrs)
+    r.raise_for_status()
+    enc_text = r.text.strip()
+    # Extract count from SOAP response
+    import re as _re
+    enc_match = _re.search(r'>(\d+)<', enc_text)
+    enc_count = int(enc_match.group(1)) if enc_match else 0
+    if enc_count > 0:
+        return {"status_code": 400,
+                "body": {"error": f"Guarantor has {enc_count} encounters and cannot be deleted"}}
+
+    # Step 2: Delete
+    del_url = _make_url(
+        f"/mobiledoc/jsp/uadmin/deleteGuarantor.jsp?uid={gr_id}", session)
+    r = client.post(del_url, headers=hdrs)
+    r.raise_for_status()
+
+    resp_text = (r.text or "").strip()
+    if resp_text == "null" or not resp_text:
+        return {"status_code": 200, "body": "deleted"}
+
+    # Non-null response = error (e.g. insurance blocking)
+    parsed = _parse_soap_xml(resp_text) if resp_text.startswith("<?xml") else {}
+    if parsed:
+        ret = parsed.get("return", parsed)
+        status_msg = ret.get("status", "") if isinstance(ret, dict) else resp_text
+    else:
+        status_msg = resp_text
+
+    if "cannot be deleted" in status_msg.lower() or "insurance" in status_msg.lower():
+        # Look up which patients have this guarantor linked
+        linked = _find_patients_by_guarantor(client, session, gr_id)
+        result = {"status_code": 409,
+                  "body": {"error": status_msg, "gr_id": gr_id}}
+        if linked:
+            result["body"]["linked_patients"] = linked
+        return result
+
+    return {"status_code": 400, "body": {"error": status_msg}}
+
+
+def _find_patients_by_guarantor(client: requests.Session, session: dict,
+                                gr_id: str) -> list:
+    """Find patients linked to a guarantor by searching patients via GrName."""
+    try:
+        # Get guarantor's name
+        hdrs = _get_headers(session)
+        r = client.get(
+            _make_url(f"/mobiledoc/jsp/uadmin/getGrGenData.jsp?uid={gr_id}", session),
+            headers=hdrs)
+        parsed = _parse_soap_xml(r.text)
+        ret = parsed.get("return", parsed)
+        # Data is nested: return.resultset.data.row
+        row = ret
+        if isinstance(ret, dict) and "resultset" in ret:
+            row = ret.get("resultset", {}).get("data", {}).get("row", {})
+        gr_lname = row.get("ulname", "") if isinstance(row, dict) else ""
+        gr_fname = row.get("ufname", "") if isinstance(row, dict) else ""
+        if not gr_lname:
+            return []
+        gr_name = f"{gr_lname}, {gr_fname}".strip(", ") if gr_fname else gr_lname
+
+        # Search patients by guarantor name
+        data = {
+            "counter": "1", "firstName": "", "lastName": "",
+            "DOB": "", "SSN": "", "AccountNo": "", "PhoneNo": "",
+            "PreviousName": "", "PreferredName": "", "Email": "",
+            "MedicalRecNo": "", "StatusSearch": "All", "enc": "0",
+            "limitstart": "0", "limitrange": "50", "SubscriberNo": "",
+            "AddlSearchBy": "GrName", "AddlSearchVal": gr_lname,
+            "MAXCOUNT": "50", "column1": "AllPhones", "column2": "GrName",
+            "column3": "LastAppt", "primarySearchValue": gr_lname,
+            "device": "webemr", "callFromScreen": "PatientSearch",
+            "userType": "", "action": "Patient", "donorProfileStatus": "2",
+            "ptid": "0", "srcContext": "JELLY_BEAN_PANEL",
+            "SearchBy": "GrName", "orderBy": "",
+        }
+        r = _post(client, session, "/mobiledoc/jsp/catalog/xml/getPatients.jsp", data)
+        patients = _parse_soap_list(r.text, "patient")
+        return [{"patient_id": p.get("id", ""),
+                 "name": f"{p.get('lname', '')}, {p.get('fname', '')}",
+                 "insurance": p.get("InsuranceName", "")}
+                for p in patients]
+    except Exception:
+        return []
+
+
+def search_guarantors(client: requests.Session, session: dict,
+                      search: str, dob: str = "", status: str = "All",
+                      max_count: int = 15) -> list:
+    """Search guarantors by name (LastName or LastName, FirstName)."""
+    lastname, firstname = "", ""
+    if "," in search:
+        parts = search.split(",", 1)
+        lastname, firstname = parts[0].strip(), parts[1].strip()
+    else:
+        lastname = search.strip()
+
+    dob_formatted = ""
+    if dob:
+        if "-" in dob and len(dob) == 10:
+            parts = dob.split("-")
+            dob_formatted = f"{parts[1]}/{parts[2]}/{parts[0]}"
+        else:
+            dob_formatted = dob
+
+    data = {
+        "counter": "1", "firstName": firstname, "lastName": lastname,
+        "DOB": "", "SSN": "", "AccountNo": "", "PhoneNo": "",
+        "PreviousName": "", "PreferredName": "", "Email": "",
+        "MedicalRecNo": "", "StatusSearch": status, "enc": "",
+        "limitstart": "0", "limitrange": str(max_count), "SubscriberNo": "",
+        "AddlSearchBy": "DateOfBirth", "AddlSearchVal": dob_formatted,
+        "MAXCOUNT": str(max_count),
+        "column1": "UserType", "column2": "LastUpdated", "column3": "MailingAddress",
+        "primarySearchValue": f"{lastname}, {firstname}".strip(", ") if firstname else lastname,
+        "device": "webemr", "callFromScreen": "PatientSearch",
+        "userType": "Both", "action": "Guarantor", "donorProfileStatus": "2",
+        "ptid": "0", "srcContext": "JELLY_BEAN_PANEL",
+        "SearchBy": "Name", "orderBy": "",
+    }
+    r = _post(client, session, "/mobiledoc/jsp/catalog/xml/getPatients.jsp", data)
+    r.raise_for_status()
+    return _parse_soap_list(r.text, "patient")
+
 
 def create_guarantor(client: requests.Session, session: dict,
                      data: dict) -> dict:
