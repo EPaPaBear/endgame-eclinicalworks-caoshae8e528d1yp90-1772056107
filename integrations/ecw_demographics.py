@@ -64,6 +64,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       delete-guarantor      - Delete a guarantor (fails if linked to insurances)
       search-patient        - Search patients by name and optionally DOB
       search-guarantor      - Search guarantors by name
+      list-document-folders - List available document folders
+      upload-document       - Upload document to any folder
     """
     input_data = input_data or {}
     action = input_data.get("action", "read")
@@ -205,8 +207,27 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "structured_data dict is required"}}
             return save_structured_data(client, session, patient_id, fields)
 
+        elif action == "list-document-folders":
+            return {"folders": list_document_folders(client, session, patient_id)}
+
+        elif action == "upload-document":
+            image_b64 = input_data.get("document_base64", "")
+            folder = input_data.get("folder", "")
+            if not image_b64:
+                return {"status_code": 400,
+                        "body": {"error": "document_base64 is required"}}
+            if not folder:
+                return {"status_code": 400,
+                        "body": {"error": "folder is required (use list-document-folders to see options)"}}
+            import base64 as _b64
+            doc_bytes = _b64.b64decode(image_b64)
+            fname = input_data.get("filename", "document.pdf")
+            desc = input_data.get("description", "")
+            return upload_document(
+                client, session, patient_id, doc_bytes, folder, fname, desc)
+
         elif action == "upload-insurance-card":
-            image_b64 = input_data.get("image_base64", "")
+            image_b64 = input_data.get("image_base64", input_data.get("document_base64", ""))
             if not image_b64:
                 return {"status_code": 400,
                         "body": {"error": "image_base64 is required"}}
@@ -214,8 +235,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             image_bytes = _b64.b64decode(image_b64)
             fname = input_data.get("filename", "insurance_card.png")
             desc = input_data.get("description", "")
-            return upload_insurance_card(
-                client, session, patient_id, image_bytes, fname, desc)
+            return upload_document(
+                client, session, patient_id, image_bytes, "Insurance", fname, desc)
 
         elif action == "upload-profile-picture":
             image_b64 = input_data.get("image_base64", "")
@@ -301,6 +322,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "read-lrte", "lrte-lookup", "save-lrte",
                                  "read-parent-info", "save-parent-info",
                                  "read-structured-data", "save-structured-data",
+                                 "list-document-folders", "upload-document",
                                  "upload-insurance-card", "upload-profile-picture",
                                  "save-communication-notes", "save-communication-settings",
                                  "send-sms",
@@ -2072,12 +2094,91 @@ def save_structured_data(client: requests.Session, session: dict,
     return _soap_result(r)
 
 
-# ── Insurance Card Upload ─────────────────────────────────────────────────────
+# ── Document Upload ───────────────────────────────────────────────────────────
 
-def upload_insurance_card(client: requests.Session, session: dict,
-                          patient_id: str, image_bytes: bytes,
-                          filename: str = "insurance_card.png",
-                          description: str = "") -> dict:
+def list_document_folders(client: requests.Session, session: dict,
+                          patient_id: str) -> list:
+    """Return the patient document folder tree."""
+    data = {
+        "requestSource": "patientDocuments",
+        "TrUserId": session["tr_user_id"],
+        "PatientId": patient_id,
+        "itemVal": "true",
+        "sortOrder": "desc",
+        "sortDateOrder": "desc",
+        "templateId": "",
+        "tagIds": "",
+        "showMigratedOnly": "false",
+    }
+    r = _post(client, session,
+              "/mobiledoc/jsp/webemr/toppanel/patientdocs/getPatientDocs.jsp", data)
+    r.raise_for_status()
+    raw = r.json() if r.text.strip() else []
+    tree = raw[0] if isinstance(raw, list) and len(raw) > 0 and isinstance(raw[0], list) else raw
+
+    def _flatten(node, parent_name=""):
+        name = (node.get("customname") or "").strip()
+        entry = {"id": node.get("id", ""), "name": name, "catId": node.get("catId", "")}
+        if parent_name:
+            entry["qualified_name"] = f"{parent_name} > {name}"
+            entry["parent"] = parent_name
+        results = [entry]
+        for child in node.get("children", []):
+            results.extend(_flatten(child, parent_name=name))
+        return results
+
+    folders = []
+    for node in tree:
+        folders.extend(_flatten(node))
+    return folders
+
+
+def _resolve_folder(client: requests.Session, session: dict,
+                    patient_id: str, folder_name: str) -> dict:
+    """Resolve a folder name to its id and catId. Supports 'Parent > Child' syntax."""
+    folders = list_document_folders(client, session, patient_id)
+
+    target = folder_name.strip()
+
+    # Exact match on qualified_name first
+    if " > " in target:
+        for f in folders:
+            if f.get("qualified_name", "").lower() == target.lower():
+                return f
+
+    # Exact match on name (case-insensitive)
+    matches = [f for f in folders if f["name"].lower() == target.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        # Ambiguous — require qualified name
+        options = [f.get("qualified_name") or f["name"] + " (root)" for f in matches]
+        raise ValueError(
+            f"Ambiguous folder '{target}' - matches {len(matches)} folders. "
+            f"Use qualified name from the following options: {options}")
+
+    # Partial / substring match as fallback
+    partial = [f for f in folders if target.lower() in f["name"].lower()]
+    if len(partial) == 1:
+        return partial[0]
+
+    raise ValueError(f"Folder '{target}' not found")
+
+
+def upload_document(client: requests.Session, session: dict,
+                    patient_id: str, doc_bytes: bytes, folder: str,
+                    filename: str = "document.pdf",
+                    description: str = "") -> dict:
+    """Upload a document to any patient docs folder by name."""
+    resolved = _resolve_folder(client, session, patient_id, folder)
+    catid = resolved["id"]
+    return _upload_doc(client, session, patient_id, doc_bytes, catid, filename, description)
+
+
+def _upload_doc(client: requests.Session, session: dict,
+                patient_id: str, image_bytes: bytes, catid: str,
+                filename: str = "document.pdf",
+                description: str = "") -> dict:
     import uuid as _uuid
     from datetime import datetime as _dt
 
@@ -2092,7 +2193,7 @@ def upload_insurance_card(client: requests.Session, session: dict,
         f'<Document>'
         f'<PatientId xsi:type="xsd:string">{patient_id}</PatientId>'
         f'<FileName xsi:type="xsd:string">{generated_name}</FileName>'
-        f'<catid xsi:type="xsd:string">202</catid>'
+        f'<catid xsi:type="xsd:string">{catid}</catid>'
         f'<CustomName xsi:type="xsd:string">{_escape_xml(custom_name)}</CustomName>'
         f'<ScannedDate xsi:type="xsd:string">{scanned_date}</ScannedDate>'
         f'<ScannedBy xsi:type="xsd:string"></ScannedBy>'
