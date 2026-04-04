@@ -2252,7 +2252,20 @@ def _upload_doc(client: requests.Session, session: dict,
 
 def upload_profile_picture(client: requests.Session, session: dict,
                            patient_id: str, image_bytes: bytes) -> dict:
-    filename = f"{patient_id}.jpg"
+    # Detect image format from magic bytes
+    if image_bytes[:3] == b'\xff\xd8\xff':
+        ext, mime = "jpg", "image/jpeg"
+    elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        ext, mime = "png", "image/png"
+    elif image_bytes[:4] == b'GIF8':
+        ext, mime = "gif", "image/gif"
+    elif image_bytes[:4] in (b'RIFF',) and image_bytes[8:12] == b'WEBP':
+        ext, mime = "webp", "image/webp"
+    else:
+        return {"status_code": 400,
+                "body": {"error": "Unsupported image format. Send JPEG, PNG, GIF, or WEBP."}}
+
+    filename = f"{patient_id}.{ext}"
     url = _make_url(
         f"/mobiledoc/ecwimage?operation=upload&filename={filename}"
         f"&filepath=/mobiledoc/Patients",
@@ -2266,14 +2279,21 @@ def upload_profile_picture(client: requests.Session, session: dict,
         "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
     }
     r = client.post(url,
-                    files={"sampleFile": ("blob", image_bytes, "image/jpeg")},
+                    files={"sampleFile": ("blob", image_bytes, mime)},
                     data={"foldername": "", "id": "", "flag": ""},
                     headers=hdrs)
     r.raise_for_status()
     ok = "success" in r.text.lower()
-    return {"status_code": 200 if ok else 400,
-            "body": r.text.strip(),
-            "fileName": filename}
+    if not ok:
+        return {"status_code": 400, "body": r.text.strip(), "fileName": filename}
+
+    # Sync patient image (mirrors browser post-upload call)
+    sync_url = _make_url(
+        "/mobiledoc/emr/schedule/appt-check-in-assistant/sync-patient-image",
+        session)
+    client.post(sync_url, data={"patientId": str(patient_id)}, headers=_get_headers(session))
+
+    return {"status_code": 200, "body": "success", "fileName": filename}
 
 
 # ── Communication Notes ───────────────────────────────────────────────────────
