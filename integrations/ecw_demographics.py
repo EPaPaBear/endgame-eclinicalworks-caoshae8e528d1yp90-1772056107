@@ -223,8 +223,11 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             doc_bytes = _b64.b64decode(image_b64)
             fname = input_data.get("filename", "document.pdf")
             desc = input_data.get("description", "")
+            reviewed = input_data.get("reviewed", True)
+            if isinstance(reviewed, str):
+                reviewed = reviewed.lower() not in ("0", "false", "no")
             return upload_document(
-                client, session, patient_id, doc_bytes, folder, fname, desc)
+                client, session, patient_id, doc_bytes, folder, fname, desc, reviewed)
 
         elif action == "upload-insurance-card":
             image_b64 = input_data.get("image_base64", input_data.get("document_base64", ""))
@@ -2168,17 +2171,19 @@ def _resolve_folder(client: requests.Session, session: dict,
 def upload_document(client: requests.Session, session: dict,
                     patient_id: str, doc_bytes: bytes, folder: str,
                     filename: str = "document.pdf",
-                    description: str = "") -> dict:
+                    description: str = "",
+                    reviewed: bool = True) -> dict:
     """Upload a document to any patient docs folder by name."""
     resolved = _resolve_folder(client, session, patient_id, folder)
     catid = resolved["id"]
-    return _upload_doc(client, session, patient_id, doc_bytes, catid, filename, description)
+    return _upload_doc(client, session, patient_id, doc_bytes, catid, filename, description, reviewed)
 
 
 def _upload_doc(client: requests.Session, session: dict,
                 patient_id: str, image_bytes: bytes, catid: str,
                 filename: str = "document.pdf",
-                description: str = "") -> dict:
+                description: str = "",
+                reviewed: bool = True) -> dict:
     import uuid as _uuid
     from datetime import datetime as _dt
 
@@ -2198,7 +2203,7 @@ def _upload_doc(client: requests.Session, session: dict,
         f'<ScannedDate xsi:type="xsd:string">{scanned_date}</ScannedDate>'
         f'<ScannedBy xsi:type="xsd:string"></ScannedBy>'
         f'<Description xsi:type="xsd:string">{_escape_xml(description)}</Description>'
-        f'<Review xsi:type="xsd:string">0</Review>'
+        f'<Review xsi:type="xsd:string">{"1" if reviewed else "0"}</Review>'
         f'<ReviewerId xsi:type="xsd:string">{session["tr_user_id"]}</ReviewerId>'
         f'<ReviewerName xsi:type="xsd:string"></ReviewerName>'
         f'<Priority xsi:type="xsd:string">0</Priority>'
