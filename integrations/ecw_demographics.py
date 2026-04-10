@@ -2257,20 +2257,14 @@ def _upload_doc(client: requests.Session, session: dict,
 
 def upload_profile_picture(client: requests.Session, session: dict,
                            patient_id: str, image_bytes: bytes) -> dict:
-    # Detect image format from magic bytes
-    if image_bytes[:3] == b'\xff\xd8\xff':
-        ext, mime = "jpg", "image/jpeg"
-    elif image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
-        ext, mime = "png", "image/png"
-    elif image_bytes[:4] == b'GIF8':
-        ext, mime = "gif", "image/gif"
-    elif image_bytes[:4] in (b'RIFF',) and image_bytes[8:12] == b'WEBP':
-        ext, mime = "webp", "image/webp"
-    else:
+    # ECW requires JPEG — validates magic bytes against extension.
+    # The browser converts all formats to JPEG via canvas.toBlob before upload.
+    # Reject non-JPEG input since the Lambda doesn't have Pillow for conversion.
+    if image_bytes[:3] != b'\xff\xd8\xff':
         return {"status_code": 400,
-                "body": {"error": "Unsupported image format. Send JPEG, PNG, GIF, or WEBP."}}
-
-    filename = f"{patient_id}.{ext}"
+                "body": {"error": "Image must be JPEG format. ECW requires JPEG for profile pictures. "
+                                  "Convert to JPEG before base64-encoding."}}
+    filename = f"{patient_id}.jpg"
     url = _make_url(
         f"/mobiledoc/ecwimage?operation=upload&filename={filename}"
         f"&filepath=/mobiledoc/Patients",
@@ -2284,7 +2278,7 @@ def upload_profile_picture(client: requests.Session, session: dict,
         "Referer": f"{BASE_URL}/mobiledoc/jsp/webemr/index.jsp",
     }
     r = client.post(url,
-                    files={"sampleFile": ("blob", image_bytes, mime)},
+                    files={"sampleFile": ("blob", image_bytes, "image/jpeg")},
                     data={"foldername": "", "id": "", "flag": ""},
                     headers=hdrs)
     r.raise_for_status()
