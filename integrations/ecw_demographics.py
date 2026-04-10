@@ -64,6 +64,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       delete-guarantor      - Delete a guarantor (fails if linked to insurances)
       search-patient        - Search patients by name and optionally DOB
       search-guarantor      - Search guarantors by name
+      get-appointments       - Get last and next appointments
+      update-appointment    - Update appointment fields and/or add payment
       list-document-folders - List available document folders
       upload-document       - Upload document to any folder
     """
@@ -87,7 +89,19 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             if not changes:
                 return {"status_code": 400,
                         "body": {"error": "changes dict is required"}}
-            return edit_demographics(client, session, patient_id, changes)
+            result = edit_demographics(client, session, patient_id, changes)
+            appt_changes = changes.get("appointment")
+            if appt_changes and isinstance(appt_changes, dict):
+                enc_id = appt_changes.pop("enc_id", "")
+                if not enc_id:
+                    if isinstance(result, dict):
+                        result["appointment_update"] = {"error": "enc_id is required in appointment"}
+                else:
+                    appt_result = update_appointment(
+                        client, session, patient_id, enc_id, appt_changes)
+                    if isinstance(result, dict):
+                        result["appointment_update"] = appt_result.get("body", {})
+            return result
 
         elif action == "read-combos":
             return get_demographics_combos(client, session, patient_id)
@@ -267,6 +281,20 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
         elif action == "create-telephone-encounter":
             return create_telephone_encounter(client, session, patient_id, input_data)
 
+        elif action == "get-appointments":
+            return get_appointments(client, session, patient_id)
+
+        elif action == "update-appointment":
+            enc_id = input_data.get("enc_id", "")
+            if not enc_id:
+                return {"status_code": 400,
+                        "body": {"error": "enc_id is required (from get-appointments)"}}
+            changes = input_data.get("changes", {})
+            if not changes:
+                return {"status_code": 400,
+                        "body": {"error": "changes dict is required"}}
+            return update_appointment(client, session, patient_id, enc_id, changes)
+
         elif action == "create-guarantor":
             guarantor_data = input_data.get("guarantor", {})
             if not guarantor_data:
@@ -330,6 +358,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "save-communication-notes", "save-communication-settings",
                                  "send-sms",
                                  "create-telephone-encounter",
+                                 "get-appointments", "update-appointment",
                                  "create-guarantor", "update-guarantor",
                                  "delete-guarantor", "search-patient",
                                  "search-guarantor",
@@ -552,6 +581,44 @@ def get_patient_info(client: requests.Session, session: dict,
                         "description": obj.get("description", ""),
                     }
             parsed["phoneList"] = phone_list
+        except Exception:
+            pass
+
+    # Enrich with most recent last/next appointment summaries
+    if isinstance(parsed, dict) and parsed:
+        try:
+            hub_data = {"pid": patient_id, "encounterId": "0"}
+            hub_r = _post(client, session,
+                          "/mobiledoc/jsp/webemr/toppanel/patientHub/fetchPatientHub.jsp",
+                          hub_data)
+            hub = hub_r.json() if hub_r.text.strip() else {}
+            pi = hub.get("patientinfo", {})
+            parsed["lastAppt"] = pi.get("lastAppt", "").strip()
+            parsed["nextAppt"] = pi.get("nextAppt", "").strip()
+            parsed["lastEncId"] = pi.get("LastEncId", "")
+
+            last_raw = pi.get("lastAppointments", "[]")
+            last = json.loads(last_raw) if isinstance(last_raw, str) else last_raw
+            if last:
+                parsed["lastAppointment"] = {
+                    "encId": last[0].get("encId", ""),
+                    "dateTime": last[0].get("apptDateTime", ""),
+                    "provider": last[0].get("providerName", ""),
+                    "facility": last[0].get("facility", ""),
+                    "visitType": last[0].get("visitType", ""),
+                    "reason": last[0].get("encReason", ""),
+                }
+            nxt_raw = pi.get("nextAppointments", "[]")
+            nxt = json.loads(nxt_raw) if isinstance(nxt_raw, str) else nxt_raw
+            if nxt:
+                parsed["nextAppointment"] = {
+                    "encId": nxt[0].get("encId", ""),
+                    "dateTime": nxt[0].get("apptDateTime", ""),
+                    "provider": nxt[0].get("providerName", ""),
+                    "facility": nxt[0].get("facility", ""),
+                    "visitType": nxt[0].get("visitType", ""),
+                    "reason": nxt[0].get("encReason", ""),
+                }
         except Exception:
             pass
 
@@ -1605,6 +1672,238 @@ def edit_income(client: requests.Session, session: dict,
         "AssignedDate": calc.get("AssignedDate", ""),
         "ExpiryDate": calc.get("ExpiryDate", ""),
     }
+    return result
+
+
+# ── Appointments ──────────────────────────────────────────────────────────────
+
+def get_appointments(client: requests.Session, session: dict,
+                     patient_id: str) -> dict:
+    """Get last and next appointments from Patient Hub."""
+    data = {"pid": patient_id, "encounterId": "0"}
+    r = _post(client, session,
+              "/mobiledoc/jsp/webemr/toppanel/patientHub/fetchPatientHub.jsp", data)
+    r.raise_for_status()
+    resp = r.json() if r.text.strip() else {}
+    pi = resp.get("patientinfo", {})
+
+    last_raw = pi.get("lastAppointments", "[]")
+    next_raw = pi.get("nextAppointments", "[]")
+    last = json.loads(last_raw) if isinstance(last_raw, str) else last_raw
+    nxt = json.loads(next_raw) if isinstance(next_raw, str) else next_raw
+
+    def _clean(appt):
+        return {
+            "encId": appt.get("encId", ""),
+            "date": appt.get("appDateOnly", ""),
+            "dateTime": appt.get("apptDateTime", ""),
+            "timeZone": appt.get("apptTimeZone", ""),
+            "facility": appt.get("facility", ""),
+            "facilityId": appt.get("facilityId", ""),
+            "provider": appt.get("providerName", ""),
+            "providerId": appt.get("providerId", ""),
+            "visitType": appt.get("visitType", ""),
+            "reason": appt.get("encReason", ""),
+            "encType": appt.get("encType", ""),
+            "nonBillable": appt.get("nonBillable", "0"),
+        }
+
+    return {
+        "lastAppointments": [_clean(a) for a in (last or [])],
+        "nextAppointments": [_clean(a) for a in (nxt or [])],
+        "lastAppt": pi.get("lastAppt", ""),
+        "nextAppt": pi.get("nextAppt", ""),
+    }
+
+
+def update_appointment(client: requests.Session, session: dict,
+                       patient_id: str, enc_id: str, changes: dict) -> dict:
+    """Update an appointment/encounter. Supports visit fields and optional payment.
+
+    changes can include:
+      Appointment fields:
+        visitType, visitSubTypeId, status, reason, providerId (doctorid),
+        resourceId, facilityId, time, endTime, date, notes, infoForProvider,
+        billing, billingNotes, generalNotes, cancellationReason
+      Payment (nested under 'payment'):
+        amount, method (Cash/Credit Card/Check/etc), memo, facilityId
+    """
+    hdrs = _get_headers(session)
+
+    # Step 1: Get current appointment state via concurrency check
+    conc_url = _make_url(
+        f"/mobiledoc/emr/concurrency/checkApptFieldLevelConcurrency/{enc_id}",
+        session)
+    r = client.get(conc_url, headers=hdrs)
+    r.raise_for_status()
+    current = r.json() if r.text.strip() else {}
+    if current.get("status") != "success":
+        return {"status_code": 400, "body": {"error": "Failed to read appointment", "detail": current}}
+
+    # Step 2: Build encounter update XML
+    from datetime import datetime as _dt
+    now = _dt.now()
+
+    provider_id = changes.get("providerId", str(current.get("doctorId", "0")))
+    resource_id = changes.get("resourceId", str(current.get("resourceId", provider_id)))
+    status_code = changes.get("status", current.get("visitStatusCode", "PEN"))
+    visit_type = changes.get("visitType", "MED")
+    visit_sub_type_id = changes.get("visitSubTypeId", "0")
+    reason = changes.get("reason", "")
+    facility_id = changes.get("facilityId", "0")
+    pos = changes.get("POS", str(current.get("pos", "50")))
+    appt_date = changes.get("date", now.strftime("%Y-%m-%d"))
+    appt_time = changes.get("time", "")
+    end_time = changes.get("endTime", "")
+    notes = changes.get("notes", current.get("generalNotes", ""))
+    billing_notes = changes.get("billingNotes", current.get("billingNotes", ""))
+    info_for_provider = changes.get("infoForProvider", "")
+    cancellation_reason = changes.get("cancellationReason", "")
+
+    enc_xml = (
+        f'<encounter xsi:type="xsd:string">'
+        f'<id xsi:type="xsd:int">{patient_id}</id>'
+        f'<date xsi:type="xsd:string">{appt_date}</date>'
+        f'<time xsi:type="xsd:string">{appt_time}</time>'
+        f'<endTime xsi:type="xsd:string">{end_time}</endTime>'
+        f'<visitType xsi:type="xsd:string">{_escape_xml(visit_type)}</visitType>'
+        f'<visitSubTypeId xsi:type="xsd:int">{visit_sub_type_id}</visitSubTypeId>'
+        f'<reason xsi:type="xsd:string">{_escape_xml(reason)}</reason>'
+        f'<doctorid xsi:type="xsd:int">{provider_id}</doctorid>'
+        f'<status xsi:type="xsd:string">{_escape_xml(status_code)}</status>'
+        f'<billing xsi:type="xsd:string">{_escape_xml(billing_notes)}</billing>'
+        f'<encType xsi:type="xsd:string">1</encType>'
+        f'<notes xsi:type="xsd:string">{_escape_xml(notes)}</notes>'
+        f'<infoForProvider xsi:type="xsd:string">{_escape_xml(info_for_provider)}</infoForProvider>'
+        f'<visitSubType xsi:type="xsd:string"></visitSubType>'
+        f'<facilityId xsi:type="xsd:int">{facility_id}</facilityId>'
+        f'<POS xsi:type="xsd:int">{pos}</POS>'
+        f'<arrTime xsi:type="xsd:string">00:00:00</arrTime>'
+        f'<depTime xsi:type="xsd:string">00:00:00</depTime>'
+        f'<ptFlag xsi:type="xsd:string">0</ptFlag>'
+        f'<Dx xsi:type="xsd:string"></Dx>'
+        f'<visitTypeOverriden xsi:type="xsd:string"></visitTypeOverriden>'
+        f'<refPrName xsi:type="xsd:string"></refPrName>'
+        f'<refPrId xsi:type="xsd:string">0</refPrId>'
+        f'<DeptId xsi:type="xsd:int">0</DeptId>'
+        f'<UserInfo xsi:type="xsd:string"></UserInfo>'
+        f'<resourceId xsi:type="xsd:string">{resource_id}</resourceId>'
+        f'<resFacFilterId xsi:type="xsd:int">0</resFacFilterId>'
+        f'<practiceId xsi:type="xsd:int">0</practiceId>'
+        f'<transitionofcare xsi:type="xsd:int">0</transitionofcare>'
+        f'<ptEmail xsi:type="xsd:string"></ptEmail>'
+        f'<cancellationReason xsi:type="xsd:string">{_escape_xml(cancellation_reason)}</cancellationReason>'
+        f'<userId xsi:type="xsd:string">{session["tr_user_id"]}</userId>'
+        f'<webEnabled xsi:type="xsd:string">false</webEnabled>'
+        f'<hasBookConflict xsi:type="xsd:string">false</hasBookConflict>'
+        f'<hasOverbookAppt xsi:type="xsd:string">false</hasOverbookAppt>'
+        f'<stsAfterArr xsi:type="xsd:string"></stsAfterArr>'
+        f'<stsCheckInCheckOutTime xsi:type="xsd:string"></stsCheckInCheckOutTime>'
+        f'<stsCheckInCheckOutTimeInUTC xsi:type="xsd:string"></stsCheckInCheckOutTimeInUTC>'
+        f'<currDate xsi:type="xsd:string">{now.strftime("%Y-%m-%d")}</currDate>'
+        f'<currTime xsi:type="xsd:string">{now.strftime("%H:%M:%S")}</currTime>'
+        f'<webEmr xsi:type="xsd:string">true</webEmr>'
+        f'<isResourceScheduleAppt xsi:type="xsd:string">true</isResourceScheduleAppt>'
+        f'</encounter>')
+    full_xml = _soap_envelope(enc_xml)
+
+    r = _post(client, session,
+              f"/mobiledoc/jsp/catalog/xml/updateEncounter.jsp?EncounterId={enc_id}",
+              {"FormData": full_xml})
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed)
+    enc_status = ret.get("status", "") if isinstance(ret, dict) else ""
+
+    result = {"status_code": 200 if enc_status == "success" else 400,
+              "body": {"encounter_update": enc_status}}
+
+    # Step 3: Save dental/resource details (browser always does this)
+    res_data = json.dumps({
+        "encId": str(enc_id),
+        "providerTime": "[]", "resourceTime": "[]",
+        "chairTime": "[]", "isDental": "0",
+    })
+    res_hdrs = _get_headers(session)
+    res_hdrs["Content-Type"] = "application/json"
+    res_url = _make_url(
+        "/mobiledoc/dental/dentalApptResourceDetail/saveApptDetails/", session)
+    client.post(res_url, headers=res_hdrs, data=res_data)
+
+    # Step 4: Payment (optional)
+    payment = changes.get("payment")
+    if payment:
+        amount = str(payment.get("amount", "0.00"))
+        method = payment.get("method", "Cash")
+        memo = payment.get("memo", "")
+        pmt_facility = payment.get("facilityId", facility_id)
+        check_no = payment.get("checkNo", "")
+        deposit_date = payment.get("depositDate", "")
+
+        pmt_xml = (
+            f'<PaymentData xsi:type="xsd:string">'
+            f'<paymentId xsi:type="xsd:string">0</paymentId>'
+            f'<payerId xsi:type="xsd:string">{patient_id}</payerId>'
+            f'<payerType xsi:type="xsd:string">2</payerType>'
+            f'<date xsi:type="xsd:string">{appt_date}</date>'
+            f'<depositDate xsi:type="xsd:string">{deposit_date}</depositDate>'
+            f'<amount xsi:type="xsd:double">{amount}</amount>'
+            f'<type xsi:type="xsd:string">{_escape_xml(method)}</type>'
+            f'<checkNo  xsi:type="xsd:string">{_escape_xml(check_no)}</checkNo >'
+            f'<checkDate xsi:type="xsd:string">0000-00-00</checkDate>'
+            f'<memo xsi:type="xsd:string">{_escape_xml(memo)}</memo>'
+            f'<providerId xsi:type="xsd:string">0</providerId>'
+            f'<facilityId xsi:type="xsd:string">{pmt_facility}</facilityId>'
+            f'<PracticeId xsi:type="xsd:string">0</PracticeId>'
+            f'<userId xsi:type="xsd:string">{session["tr_user_id"]}</userId>'
+            f'<PaymentCode  xsi:type="xsd:string"></PaymentCode >'
+            f'<ePaymentIdVal xsi:type="xsd:string"></ePaymentIdVal>'
+            f'<creditType xsi:type="xsd:int">0</creditType>'
+            f'<BatchId xsi:type="xsd:int">0</BatchId>'
+            f'<PostedById xsi:type="xsd:int">{session["tr_user_id"]}</PostedById>'
+            f'<createdFromAppt xsi:type="xsd:int">1</createdFromAppt>'
+            f'</PaymentData>')
+        pmt_full_xml = _soap_envelope(pmt_xml)
+        r = _post(client, session,
+                  "/mobiledoc/jsp/catalog/xml/setInsPayment.jsp",
+                  {"FormData": pmt_full_xml})
+        pmt_parsed = _parse_soap_xml(r.text)
+        pmt_ret = pmt_parsed.get("return", pmt_parsed)
+        pmt_id = pmt_ret.get("paymentId", "") if isinstance(pmt_ret, dict) else ""
+        pmt_status = pmt_ret.get("status", "") if isinstance(pmt_ret, dict) else ""
+        result["body"]["payment"] = {"status": pmt_status, "paymentId": pmt_id}
+
+        # Link payment to encounter
+        if pmt_id:
+            det_xml = (
+                f'<UpdatedPmtDetails xsi:type="xsd:string">'
+                f'<PmtDetail xsi:type="xsd:string">'
+                f'<PmtDetailId  xsi:type="xsd:int">0</PmtDetailId >'
+                f'<invoiceId xsi:type="xsd:int">0</invoiceId>'
+                f'<encounterId  xsi:type="xsd:int">{enc_id}</encounterId >'
+                f'<adjustment xsi:type="xsd:string">0.00</adjustment>'
+                f'<allowed xsi:type="xsd:string">0.00</allowed>'
+                f'<deduct xsi:type="xsd:string">0.00</deduct>'
+                f'<coins xsi:type="xsd:string">0.00</coins>'
+                f'<copay xsi:type="xsd:string">0.00</copay>'
+                f'<paid  xsi:type="xsd:string">0.00</paid >'
+                f'<withheld xsi:type="xsd:string">0.00</withheld>'
+                f'<MsgCode xsi:type="xsd:string"></MsgCode>'
+                f'</PmtDetail>'
+                f'</UpdatedPmtDetails>'
+                f'<DeletedPmtDetails xsi:type="xsd:string" />')
+            det_full_xml = _soap_envelope(det_xml)
+            r = _post(client, session,
+                      "/mobiledoc/jsp/catalog/xml/setPaymentDetails.jsp",
+                      {"FormData": det_full_xml})
+            det_text = (r.text or "").strip()
+            if det_text == "null" or not det_text:
+                result["body"]["payment_detail"] = "success"
+            else:
+                det_parsed = _parse_soap_xml(det_text)
+                det_ret = det_parsed.get("return", det_parsed)
+                result["body"]["payment_detail"] = det_ret.get("status", "success") if isinstance(det_ret, dict) else det_text[:200]
+
     return result
 
 
