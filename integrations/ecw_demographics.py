@@ -47,6 +47,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       calculate             - Calculate sliding fee from income/dependants/unit
       search-provider       - Search providers by name
       search-facility       - Search facilities by name
+      search-resource       - Search scheduling resources
       get-contacts          - Read patient contacts
       add-contact           - Create a new contact
       update-contact        - Update an existing contact
@@ -127,6 +128,12 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                 lastname = search.strip()
             return {"providers": search_providers(
                 client, session, lastname, firstname)}
+
+        elif action == "search-resource":
+            name = input_data.get("name", "")
+            max_count = int(input_data.get("max_count", 50))
+            return {"resources": search_resources(
+                client, session, name=name, max_count=max_count)}
 
         elif action == "search-facility":
             return {"facilities": search_facilities(
@@ -346,7 +353,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                              "valid_actions": [
                                  "read", "edit-demographics", "read-combos",
                                  "read-sliding-fee", "calculate",
-                                 "search-provider", "search-facility", "get-contacts",
+                                 "search-provider", "search-facility",
+                                 "search-resource", "get-contacts",
                                  "add-contact", "update-contact",
                                  "set-responsible-party", "edit-income",
                                  "read-sogi", "save-sogi",
@@ -721,6 +729,35 @@ def search_facilities(client: requests.Session, session: dict,
     r = client.get(url, headers=hdrs)
     r.raise_for_status()
     return _parse_soap_list(r.text, "facility")
+
+
+def search_resources(client: requests.Session, session: dict,
+                     name: str = "", max_count: int = 500) -> list:
+    """Search scheduling resources (providers, rooms, equipment).
+    Paginates through all pages since provider-type resources appear on later pages."""
+    all_resources = []
+    page_size = 200
+    for pg in range(1, 10):  # safety cap
+        data = {
+            "action": "getResourcesWithPagination",
+            "page": str(pg),
+            "recordsPerPage": str(page_size),
+            "isWithId": "false",
+        }
+        r = _post(client, session,
+                  "/mobiledoc/jsp/webemr/scheduling/Controller.jsp", data)
+        r.raise_for_status()
+        resp = r.json() if r.text.strip() else {}
+        batch = resp.get("result", [])
+        all_resources.extend(batch)
+        if len(batch) < page_size or len(all_resources) >= max_count:
+            break
+
+    if name:
+        name_lower = name.lower()
+        all_resources = [res for res in all_resources
+                         if name_lower in res.get("resourceName", "").lower()]
+    return all_resources[:max_count]
 
 
 def get_patient_lrte(client: requests.Session, session: dict,
@@ -1692,9 +1729,13 @@ def get_appointments(client: requests.Session, session: dict,
     last = json.loads(last_raw) if isinstance(last_raw, str) else last_raw
     nxt = json.loads(next_raw) if isinstance(next_raw, str) else next_raw
 
-    def _clean(appt):
-        return {
-            "encId": appt.get("encId", ""),
+    hdrs = _get_headers(session)
+
+    def _enrich(appt):
+        """Enrich appointment with concurrency check + copay data."""
+        enc_id = appt.get("encId", "")
+        base = {
+            "encId": enc_id,
             "date": appt.get("appDateOnly", ""),
             "dateTime": appt.get("apptDateTime", ""),
             "timeZone": appt.get("apptTimeZone", ""),
@@ -1706,11 +1747,48 @@ def get_appointments(client: requests.Session, session: dict,
             "reason": appt.get("encReason", ""),
             "encType": appt.get("encType", ""),
             "nonBillable": appt.get("nonBillable", "0"),
+            # Defaults — overwritten by concurrency check
+            "status": "",
+            "resourceId": appt.get("providerId", ""),
+            "billingNotes": "",
+            "generalNotes": "",
+            "copay": "0.00",
         }
+        if not enc_id:
+            return base
+        # Concurrency check — gives status, resourceId, notes
+        try:
+            conc_url = _make_url(
+                f"/mobiledoc/emr/concurrency/checkApptFieldLevelConcurrency/{enc_id}",
+                session)
+            cr = client.get(conc_url, headers=hdrs)
+            if cr.status_code == 200:
+                cd = cr.json()
+                base["status"] = cd.get("visitStatusCode", "")
+                base["resourceId"] = str(cd.get("resourceId", base["resourceId"]))
+                base["billingNotes"] = cd.get("billingNotes", "")
+                base["generalNotes"] = cd.get("generalNotes", "")
+        except Exception:
+            pass
+        # CoPay
+        try:
+            copay_url = _make_url(
+                f"/mobiledoc/jsp/catalog/xml/edi/getApptCoPay.jsp"
+                f"?patientId={patient_id}&encounterId={enc_id}",
+                session)
+            cpr = client.get(copay_url, headers=hdrs)
+            if cpr.status_code == 200:
+                cp_parsed = _parse_soap_xml(cpr.text)
+                cp_ret = cp_parsed.get("return", {})
+                enc_data = cp_ret.get("Encounter", {}) if isinstance(cp_ret, dict) else {}
+                base["copay"] = enc_data.get("Copays", "0.00") if isinstance(enc_data, dict) else "0.00"
+        except Exception:
+            pass
+        return base
 
     return {
-        "lastAppointments": [_clean(a) for a in (last or [])],
-        "nextAppointments": [_clean(a) for a in (nxt or [])],
+        "lastAppointments": [_enrich(a) for a in (last or [])],
+        "nextAppointments": [_enrich(a) for a in (nxt or [])],
         "lastAppt": pi.get("lastAppt", ""),
         "nextAppt": pi.get("nextAppt", ""),
     }
