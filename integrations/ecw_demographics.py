@@ -1747,8 +1747,9 @@ def get_appointments(client: requests.Session, session: dict,
             "reason": appt.get("encReason", ""),
             "encType": appt.get("encType", ""),
             "nonBillable": appt.get("nonBillable", "0"),
-            # Defaults — overwritten by concurrency check
+            # Defaults — overwritten by enrichment calls
             "status": "",
+            "visitSubTypeId": "",
             "resourceId": appt.get("providerId", ""),
             "billingNotes": "",
             "generalNotes": "",
@@ -1756,6 +1757,16 @@ def get_appointments(client: requests.Session, session: dict,
         }
         if not enc_id:
             return base
+        # Visit sub-type — getvisittypeinfo returns VisitTypeId (which is the sub-type)
+        try:
+            vt_r = _post(client, session,
+                         "/mobiledoc/emr/visittypechange/getvisittypeinfo",
+                         {"encounterId": enc_id})
+            if vt_r.status_code == 200:
+                vt_data = vt_r.json()
+                base["visitSubTypeId"] = str(vt_data.get("VisitTypeId", ""))
+        except Exception:
+            pass
         # Concurrency check — gives status, resourceId, notes
         try:
             conc_url = _make_url(
