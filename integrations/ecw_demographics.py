@@ -592,41 +592,19 @@ def get_patient_info(client: requests.Session, session: dict,
         except Exception:
             pass
 
-    # Enrich with most recent last/next appointment summaries
+    # Enrich with most recent last/next appointment (full detail matching get-appointments)
     if isinstance(parsed, dict) and parsed:
         try:
-            hub_data = {"pid": patient_id, "encounterId": "0"}
-            hub_r = _post(client, session,
-                          "/mobiledoc/jsp/webemr/toppanel/patientHub/fetchPatientHub.jsp",
-                          hub_data)
-            hub = hub_r.json() if hub_r.text.strip() else {}
-            pi = hub.get("patientinfo", {})
-            parsed["lastAppt"] = pi.get("lastAppt", "").strip()
-            parsed["nextAppt"] = pi.get("nextAppt", "").strip()
-            parsed["lastEncId"] = pi.get("LastEncId", "")
-
-            last_raw = pi.get("lastAppointments", "[]")
-            last = json.loads(last_raw) if isinstance(last_raw, str) else last_raw
-            if last:
-                parsed["lastAppointment"] = {
-                    "encId": last[0].get("encId", ""),
-                    "dateTime": last[0].get("apptDateTime", ""),
-                    "provider": last[0].get("providerName", ""),
-                    "facility": last[0].get("facility", ""),
-                    "visitType": last[0].get("visitType", ""),
-                    "reason": last[0].get("encReason", ""),
-                }
-            nxt_raw = pi.get("nextAppointments", "[]")
-            nxt = json.loads(nxt_raw) if isinstance(nxt_raw, str) else nxt_raw
-            if nxt:
-                parsed["nextAppointment"] = {
-                    "encId": nxt[0].get("encId", ""),
-                    "dateTime": nxt[0].get("apptDateTime", ""),
-                    "provider": nxt[0].get("providerName", ""),
-                    "facility": nxt[0].get("facility", ""),
-                    "visitType": nxt[0].get("visitType", ""),
-                    "reason": nxt[0].get("encReason", ""),
-                }
+            appts = get_appointments(client, session, patient_id)
+            parsed["lastAppt"] = appts.get("lastAppt", "")
+            parsed["nextAppt"] = appts.get("nextAppt", "")
+            last_list = appts.get("lastAppointments", [])
+            next_list = appts.get("nextAppointments", [])
+            if last_list:
+                parsed["lastAppointment"] = last_list[0]
+                parsed["lastEncId"] = last_list[0].get("encId", "")
+            if next_list:
+                parsed["nextAppointment"] = next_list[0]
         except Exception:
             pass
 
