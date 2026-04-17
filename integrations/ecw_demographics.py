@@ -1709,6 +1709,28 @@ def get_appointments(client: requests.Session, session: dict,
 
     hdrs = _get_headers(session)
 
+    # Fetch sub-type mapping once (vtname -> {subTypeId -> {code, name}})
+    subtype_index = {}
+    try:
+        st_url = _make_url(
+            "/mobiledoc/jsp/webemr/uadmin/visitsubtype/subTypeOperationController.jsp"
+            "?action=getVisitSubTypesMapping&rowPerpage=0&currentPage=1",
+            session)
+        st_r = client.get(st_url, headers=hdrs)
+        if st_r.status_code == 200:
+            st_data = st_r.json() if st_r.text.strip() else {}
+            for vt in st_data.get("subTypeMapping", []):
+                vtname = vt.get("vtname", "")
+                subtype_index[vtname] = {
+                    str(st.get("id", "")): {
+                        "code": st.get("code", ""),
+                        "name": st.get("name", ""),
+                    }
+                    for st in vt.get("subTypes", [])
+                }
+    except Exception:
+        pass
+
     def _enrich(appt):
         """Enrich appointment with concurrency check + copay data."""
         enc_id = appt.get("encId", "")
@@ -1728,6 +1750,8 @@ def get_appointments(client: requests.Session, session: dict,
             # Defaults — overwritten by enrichment calls
             "status": "",
             "visitSubTypeId": "",
+            "visitSubTypeCode": "",
+            "visitSubTypeName": "",
             "newPt": False,
             "resourceId": appt.get("providerId", ""),
             "billingNotes": "",
@@ -1758,6 +1782,14 @@ def get_appointments(client: requests.Session, session: dict,
                     base["newPt"] = newpt_m.group(1) == "1"
         except Exception:
             pass
+        # Resolve sub-type code/name from the visit type mapping
+        vtname = base.get("visitType", "")
+        vsti = base.get("visitSubTypeId", "")
+        if vtname and vsti and vtname in subtype_index:
+            sub = subtype_index[vtname].get(vsti)
+            if sub:
+                base["visitSubTypeCode"] = sub["code"]
+                base["visitSubTypeName"] = sub["name"]
         # Concurrency check — gives status, resourceId, notes
         try:
             conc_url = _make_url(
