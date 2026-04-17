@@ -1728,6 +1728,7 @@ def get_appointments(client: requests.Session, session: dict,
             # Defaults — overwritten by enrichment calls
             "status": "",
             "visitSubTypeId": "",
+            "newPt": False,
             "resourceId": appt.get("providerId", ""),
             "billingNotes": "",
             "generalNotes": "",
@@ -1735,14 +1736,26 @@ def get_appointments(client: requests.Session, session: dict,
         }
         if not enc_id:
             return base
-        # Visit sub-type — getvisittypeinfo returns VisitTypeId (which is the sub-type)
+        # Visit sub-type + newPt flag — parse encdata XML from newAppointment.jsp
+        # Note: encdata is JSON-escaped JS string, so XML close tags appear as `<\/tag>`.
+        # Match only up to the first `<` to handle both raw and escaped forms.
         try:
-            vt_r = _post(client, session,
-                         "/mobiledoc/emr/visittypechange/getvisittypeinfo",
-                         {"encounterId": enc_id})
-            if vt_r.status_code == 200:
-                vt_data = vt_r.json()
-                base["visitSubTypeId"] = str(vt_data.get("VisitTypeId", ""))
+            na_url = _make_url(
+                f"/mobiledoc/jsp/webemr/scheduling/newAppointment.jsp"
+                f"?encounterId={enc_id}&parentScreen=patientHub",
+                session)
+            nr = client.get(na_url, headers=hdrs)
+            if nr.status_code == 200:
+                na_text = nr.text
+                # Only match inside the encdata block to avoid picking up the init var
+                enc_start = na_text.find("encdata")
+                enc_chunk = na_text[enc_start:enc_start + 5000] if enc_start > 0 else ""
+                vsti_m = re.search(r'visitSubTypeId>(\d+)<', enc_chunk)
+                if vsti_m:
+                    base["visitSubTypeId"] = vsti_m.group(1)
+                newpt_m = re.search(r'newPt>(\w*)<', enc_chunk)
+                if newpt_m:
+                    base["newPt"] = newpt_m.group(1) == "1"
         except Exception:
             pass
         # Concurrency check — gives status, resourceId, notes
