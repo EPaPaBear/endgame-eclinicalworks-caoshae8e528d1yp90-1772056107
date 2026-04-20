@@ -60,6 +60,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       save-lrte             - Save structured LRTE data
       read-parent-info      - Read parent info (mother/father/other)
       save-parent-info      - Save parent info
+      read-advance-directive         - Read patient Advance Directive entries
+      list-advance-directive-options - List Advance Directive dictionary
+      save-advance-directive         - Append an Advance Directive entry
       create-guarantor      - Create a new guarantor record
       update-guarantor      - Update an existing guarantor record
       delete-guarantor      - Delete a guarantor (fails if linked to insurances)
@@ -90,6 +93,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             if not changes:
                 return {"status_code": 400,
                         "body": {"error": "changes dict is required"}}
+            changes = _flatten_edit_input(changes)
             result = edit_demographics(client, session, patient_id, changes)
             appt_changes = changes.get("appointment")
             if appt_changes and isinstance(appt_changes, dict):
@@ -213,10 +217,28 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             translator = input_data.get("translator")
             if not lrte_type:
                 return {"status_code": 400,
-                        "body": {"error": "lrte_type is required (race/language/ethnicity)"}}
+                        "body": {"error": "lrte_type is required (race/language/ethnicity/tribe)"}}
             return save_lrte(client, session, patient_id, lrte_type,
                              entries, decline_to_specify=decline,
                              translator=translator)
+
+        elif action == "read-advance-directive":
+            return get_advance_directive(client, session, patient_id)
+
+        elif action == "list-advance-directive-options":
+            return {"options": get_advance_directive_dictionary(
+                client, session)}
+
+        elif action == "save-advance-directive":
+            code = input_data.get("code") or input_data.get("Code") or ""
+            name = input_data.get("name") or input_data.get("Name") or ""
+            if not (code or name):
+                return {"status_code": 400,
+                        "body": {"error": "code and/or name is required "
+                                          "(use list-advance-directive-options "
+                                          "to get valid values)"}}
+            return save_advance_directive(
+                client, session, patient_id, code, name)
 
         elif action == "read-structured-data":
             return get_structured_data(client, session, patient_id)
@@ -360,6 +382,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "read-sogi", "save-sogi",
                                  "read-lrte", "lrte-lookup", "save-lrte",
                                  "read-parent-info", "save-parent-info",
+                                 "read-advance-directive",
+                                 "list-advance-directive-options",
+                                 "save-advance-directive",
                                  "read-structured-data", "save-structured-data",
                                  "list-document-folders", "upload-document",
                                  "upload-insurance-card", "upload-profile-picture",
@@ -557,8 +582,10 @@ def _post(client: requests.Session, session: dict, path: str,
 
 # ── READ Operations ──────────────────────────────────────────────────────────
 
-def get_patient_info(client: requests.Session, session: dict,
-                     patient_id: str) -> dict:
+def _get_patient_info_core(client: requests.Session, session: dict,
+                           patient_id: str) -> dict:
+    """Raw flat patient record from getPatientInfo.jsp (no nesting, no side enrichments).
+    Used internally by edit_demographics to read current field values for merging."""
     url = _make_url(
         f"/mobiledoc/jsp/catalog/xml/getPatientInfo.jsp"
         f"?patientId={patient_id}&logView=true&AddlInfo=EthInfo",
@@ -571,44 +598,276 @@ def get_patient_info(client: requests.Session, session: dict,
         for key in ("return", "patient"):
             if key in parsed:
                 parsed = parsed[key]
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def get_patient_info(client: requests.Session, session: dict,
+                     patient_id: str) -> dict:
+    parsed = _get_patient_info_core(client, session, patient_id)
+    if not parsed:
+        return parsed
 
     # Enrich with phone list data (cell, home, work with database IDs)
-    if isinstance(parsed, dict) and parsed:
-        try:
-            phones = fetch_phone_numbers(client, session, patient_id)
-            phone_list = {}
-            for ptype, obj in phones.items():
-                if isinstance(obj, dict) and obj.get("phoneNumber"):
-                    phone_list[ptype] = {
-                        "id": obj.get("id"),
-                        "phoneNumber": obj.get("phoneNumber", ""),
-                        "ext": obj.get("ext"),
-                        "voiceEnabled": obj.get("voiceEnabled", False),
-                        "textEnabled": obj.get("textEnabled", False),
-                        "leaveMessage": obj.get("leaveMessage"),
-                        "description": obj.get("description", ""),
-                    }
-            parsed["phoneList"] = phone_list
-        except Exception:
-            pass
+    try:
+        phones = fetch_phone_numbers(client, session, patient_id)
+        phone_list = {}
+        for ptype, obj in phones.items():
+            if isinstance(obj, dict) and obj.get("phoneNumber"):
+                phone_list[ptype] = {
+                    "id": obj.get("id"),
+                    "phoneNumber": obj.get("phoneNumber", ""),
+                    "ext": obj.get("ext"),
+                    "voiceEnabled": obj.get("voiceEnabled", False),
+                    "textEnabled": obj.get("textEnabled", False),
+                    "leaveMessage": obj.get("leaveMessage"),
+                    "description": obj.get("description", ""),
+                }
+        parsed["phoneList"] = phone_list
+    except Exception:
+        pass
 
     # Enrich with most recent last/next appointment (full detail matching get-appointments)
-    if isinstance(parsed, dict) and parsed:
-        try:
-            appts = get_appointments(client, session, patient_id)
-            parsed["lastAppt"] = appts.get("lastAppt", "")
-            parsed["nextAppt"] = appts.get("nextAppt", "")
-            last_list = appts.get("lastAppointments", [])
-            next_list = appts.get("nextAppointments", [])
-            if last_list:
-                parsed["lastAppointment"] = last_list[0]
-                parsed["lastEncId"] = last_list[0].get("encId", "")
-            if next_list:
-                parsed["nextAppointment"] = next_list[0]
-        except Exception:
-            pass
+    try:
+        appts = get_appointments(client, session, patient_id)
+        parsed["lastAppt"] = appts.get("lastAppt", "")
+        parsed["nextAppt"] = appts.get("nextAppt", "")
+        last_list = appts.get("lastAppointments", [])
+        next_list = appts.get("nextAppointments", [])
+        if last_list:
+            parsed["lastAppointment"] = last_list[0]
+            parsed["lastEncId"] = last_list[0].get("encId", "")
+        if next_list:
+            parsed["nextAppointment"] = next_list[0]
+    except Exception:
+        pass
 
-    return parsed
+    # Tribe (LRTE) — not returned by getPatientInfo, fetch separately
+    try:
+        lrte = get_patient_lrte(client, session, patient_id)
+        tribe_data = lrte.get("Tribe", {}) if isinstance(lrte, dict) else {}
+        selected = tribe_data.get("SelectedTribe", []) if isinstance(tribe_data, dict) else []
+        if selected and isinstance(selected, list):
+            parsed["tribe"] = ",".join(t.get("name", "") for t in selected if isinstance(t, dict))
+        else:
+            parsed["tribe"] = ""
+    except Exception:
+        parsed["tribe"] = ""
+
+    # Enrich with sogi_data, parent_data, income_data, structured_data, contacts, insurance
+    try:
+        parsed["sogi_data"] = get_sogi_details(client, session, patient_id)
+    except Exception:
+        parsed["sogi_data"] = {}
+    try:
+        parsed["parent_data"] = get_parent_info(client, session, patient_id)
+    except Exception:
+        parsed["parent_data"] = {}
+    try:
+        parsed["income_data"] = get_sliding_fee_schedule(client, session, patient_id)
+    except Exception:
+        parsed["income_data"] = {}
+    try:
+        parsed["structured_data"] = get_structured_data(client, session, patient_id)
+    except Exception:
+        parsed["structured_data"] = {}
+    try:
+        parsed["contacts"] = get_contacts(client, session, patient_id)
+    except Exception:
+        parsed["contacts"] = []
+    try:
+        parsed["insurance"] = get_insurance_info(client, session, patient_id)
+    except Exception:
+        parsed["insurance"] = {}
+    try:
+        parsed["advance_directive"] = get_advance_directive(
+            client, session, patient_id)
+    except Exception:
+        parsed["advance_directive"] = {"AdvDir": [], "AdvDirDiscussionDate": ""}
+
+    return _nest_read(parsed)
+
+
+_NESTED_SECTIONS = {
+    "personal_info", "contact", "address", "demographics",
+    "employment", "student", "providers", "responsible_party",
+    "consent",
+    "other",  # bucket for fields that don't belong to a documented section;
+              # flattened on write so round-trips preserve writable values
+}
+# Read-only read keys that aren't real write fields (drop when flattening).
+# Only include fields that are purely display/derived — do NOT drop fields that
+# exist on the save payload, or round-trips will wipe them.
+_READ_ONLY_KEYS = {
+    # Display/derived names
+    "namewithsuffix", "EthnicityName", "doctorName", "RefPcpName", "RendName",
+    "refHygienistName", "priDentistName",
+    "formatedPrefName", "Insurancename", "relation",
+    # Enrichment helpers
+    "phoneList",
+    # Derived codes
+    "languageISOCode1", "languageISOCode2", "languageISOName",
+    # System-managed metadata
+    "regdate", "patientId", "ControlNo", "uname", "UserType",
+    "webenabled", "textenabled", "optout", "default_growthchart",
+    "empStatusCode", "empStatusDesc",
+    # Consent-section read-only (exposed in read but no known save endpoint)
+    "ReceivedConsent", "DateConsentSigned",
+    # Composite read-only sub-sections — caller writes these via dedicated actions
+    "appointments",       # use update-appointment or appointment sub-object
+    "contacts",           # use add-contact / update-contact
+    "insurance",          # use ecw_sfdp actions
+    "structured_data",    # use save-structured-data
+    "advance_directive",  # use save-advance-directive or advance_directive sub-object
+    # Appointment / admin read-only display fields (kept out of the save merge)
+    "lastAppt", "nextAppt", "lastEncId", "lastAppointment", "nextAppointment",
+}
+# Read-key → write-key remaps (flattener applies these when unwrapping nested
+# sections OR when a flat legacy caller passes a read-side key).
+_READ_TO_WRITE_KEY = {
+    "upreferredname": "PreferredName",
+    "upreviousname": "PreviousName",
+    "address": "address1",
+    "maritalStatus": "maritalstatus",
+    "mobile": "mobile",  # already write-form in contact section
+    "umobileno": "mobile",
+    # Student address: read uses stAddress1/stAddress2, write uses StAddress/StAddress2
+    "stAddress1": "StAddress",
+    "stAddress2": "StAddress2",
+    # Case mismatches between read and write payloads
+    "hl7id": "hl7Id",
+    "SsnReason": "ssnReason",
+    "SsnReasonNotes": "ssnReasonNotes",
+}
+
+
+def _flatten_edit_input(changes: dict) -> dict:
+    """Accept either nested (new) or flat (legacy) changes dict.
+    Returns a flat dict with write-side keys for edit_demographics().
+
+    Sub-objects (sogi_data, parent_data, income_data, contact (single new),
+    appointment) are preserved as-is on the flat output. Nested section
+    wrappers (personal_info, address, etc.) are unwrapped."""
+    if not isinstance(changes, dict):
+        return changes
+
+    out = {}
+    for key, value in changes.items():
+        if key in _NESTED_SECTIONS and isinstance(value, dict):
+            for inner_k, inner_v in value.items():
+                if inner_k in _READ_ONLY_KEYS:
+                    continue
+                mapped = _READ_TO_WRITE_KEY.get(inner_k, inner_k)
+                out[mapped] = inner_v
+        else:
+            # Pass-through: sub-objects (sogi_data/parent_data/income_data/
+            # appointment/contact) and any legacy flat fields
+            if key in _READ_ONLY_KEYS:
+                continue
+            mapped = _READ_TO_WRITE_KEY.get(key, key)
+            out[mapped] = value
+    return out
+
+
+def _nest_read(flat: dict) -> dict:
+    """Reorganize flat read output into category sections matching edit-demographics.
+    Read-side field keys are mapped to write-side keys so a caller can round-trip
+    the output back into `edit-demographics` → `changes`."""
+    def _pluck(keys):
+        """Pop keys from flat, return dict with write-side names.
+        Keeps read-only display fields (namewithsuffix, doctorName, etc.) under
+        their original names so the caller can see them but they're also safe
+        to round-trip back via edit-demographics (flattener drops them)."""
+        out = {}
+        for k in keys:
+            if k in flat:
+                v = flat.pop(k)
+                mapped = _READ_TO_WRITE_KEY.get(k, k)
+                out[mapped] = v
+        return out
+
+    nested = {"patient_id": flat.get("patientId", "")}
+
+    nested["personal_info"] = _pluck([
+        "fname", "lname", "mname", "namewithsuffix", "upreferredname", "upreviousname",
+        "prefix", "suffix", "dob", "tob", "sex", "ssn", "status",
+        "TransGender", "gestationalAge",
+        "BirthOrder", "VFC", "SsnReason", "SsnReasonNotes",
+        "deceased", "deceasedDate", "deceasedNotes",
+    ])
+
+    nested["contact"] = _pluck([
+        "phone", "umobileno", "empPhone", "email", "emailReason",
+        "phoneList", "HomeMsgType", "CellMsgType", "WorkMsgType",
+        "CellMflag", "empMflag",
+    ])
+    # Rename umobileno to mobile for parity with write keys
+    if "umobileno" in nested["contact"]:
+        nested["contact"]["mobile"] = nested["contact"].pop("umobileno")
+
+    nested["address"] = _pluck([
+        "address", "address2", "city", "state", "zip", "Country",
+        "CountyName", "CountyCode", "MailCountyName", "MailCountyCode",
+    ])
+
+    nested["demographics"] = _pluck([
+        "maritalStatus", "race", "language", "Ethnicity", "EthnicityName",
+        "tribe", "Translator", "mflag",
+        "characterestic",  # ECW-spelled "Characteristic" dropdown
+        "notes",           # free-text demographics notes
+    ])
+
+    nested["consent"] = _pluck([
+        "RelInfo",           # Release of Info (Y/N/U)
+        "RelInfoDate",       # Signature Date
+        "RxConsent",         # Rx History Consent (Y/N/U)
+        "Consent",           # General Consent flag
+        "ReceivedConsent",   # Consent received flag
+        "DateConsentSigned", # Date consent signed
+    ])
+
+    nested["employment"] = _pluck([
+        "empId", "empName", "empAddress", "empAddress2",
+        "empCity", "empState", "empZip", "EmpStatus",
+    ])
+
+    nested["student"] = _pluck([
+        "StudentStatus", "stAddress1", "stAddress2",
+        "stCity", "stState", "stZip", "stCountry", "stCountryCode",
+    ])
+
+    nested["providers"] = _pluck([
+        "doctorId", "doctorName",
+        "refPrId", "RefPcpName",
+        "rendPrId", "RendName",
+        "refHygienistId", "refHygienistName",
+        "primaryDentistId", "priDentistName",
+        "MailOrderPharmacyId", "MOMemberId",
+        "primaryServiceLocation",  # aka Default Facility
+    ])
+
+    nested["responsible_party"] = _pluck(["GrId", "GrRel", "IsGrPt"])
+
+    # Structured / composite sub-sections — keep as-is
+    for key in ["sogi_data", "parent_data", "income_data",
+                "structured_data", "contacts", "insurance",
+                "advance_directive"]:
+        if key in flat:
+            nested[key] = flat.pop(key)
+
+    # Appointments — group under single section
+    appt_section = {}
+    for key in ["lastAppt", "nextAppt", "lastEncId",
+                "lastAppointment", "nextAppointment"]:
+        if key in flat:
+            appt_section[key] = flat.pop(key)
+    if appt_section:
+        nested["appointments"] = appt_section
+
+    # Anything left over (read-only metadata, billing flags, alerts, etc.) → `other`
+    if flat:
+        nested["other"] = flat
+
+    return nested
 
 
 def get_demographics_combos(client: requests.Session, session: dict,
@@ -649,6 +908,25 @@ def get_sliding_fee_schedule(client: requests.Session, session: dict,
     if isinstance(parsed, dict) and "return" in parsed:
         return parsed["return"]
     return parsed
+
+
+def get_insurance_info(client: requests.Session, session: dict,
+                       patient_id: str) -> dict:
+    """Read patient insurance records + responsible party."""
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getInsuranceInfo.jsp"
+        f"?patientId={patient_id}&isPtDemo=true",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    insurances = _parse_soap_list(r.text, "insurance")
+    parsed = _parse_soap_xml(r.text)
+    rp = {}
+    if isinstance(parsed, dict):
+        ret = parsed.get("return", parsed)
+        if isinstance(ret, dict):
+            rp = ret.get("ResponsibleParty", {})
+    return {"insurances": insurances, "responsible_party": rp}
 
 
 def get_contacts(client: requests.Session, session: dict,
@@ -749,11 +1027,12 @@ def get_patient_lrte(client: requests.Session, session: dict,
 
 def get_lrte_lookup(client: requests.Session, session: dict,
                     lrte_type: str, search: str = "") -> list:
-    """Lookup LRTE values. lrte_type: 'race', 'language', or 'ethnicity'."""
+    """Lookup LRTE values. lrte_type: 'race', 'language', 'ethnicity', or 'tribe'."""
     type_to_path = {
         "language": "/mobiledoc/emr/patient/demographics/lrte/get-language-list",
         "race": "/mobiledoc/emr/patient/demographics/lrte/get-race-list",
         "ethnicity": "/mobiledoc/emr/patient/demographics/lrte/get-ethnicity-list",
+        "tribe": "/mobiledoc/emr/patient/demographics/lrte/get-tribe-list",
     }
     path = type_to_path.get(lrte_type)
     if not path:
@@ -774,6 +1053,7 @@ def get_lrte_lookup(client: requests.Session, session: dict,
         "language": "LanguageList",
         "race": "RaceList",
         "ethnicity": "EthnicityList",
+        "tribe": "TribeList",
     }.get(lrte_type, "")
     return result.get(list_key, [])
 
@@ -811,7 +1091,7 @@ def save_lrte(client: requests.Session, session: dict,
               translator: bool = None) -> dict:
     """Save structured LRTE data.
 
-    lrte_type: 'race', 'language', or 'ethnicity'
+    lrte_type: 'race', 'language', 'ethnicity', or 'tribe'
     entries: list of dicts from get_lrte_lookup (id, name, code, etc.)
     decline_to_specify: True to mark "declined to specify"
     translator: bool, only for language — sets translator flag
@@ -961,6 +1241,75 @@ def save_parent_info(client: requests.Session, session: dict,
               "/mobiledoc/jsp/webemr/toppanel/patientInfo/getSetParentInfo.jsp",
               {"accessParam": "save", "patientId": patient_id,
                "FormData": form_data})
+    r.raise_for_status()
+    return {"status_code": r.status_code, "body": r.text[:500]}
+
+
+# ── Advance Directive ──────────────────────────────────────────────────────
+
+def get_advance_directive_dictionary(client: requests.Session,
+                                     session: dict) -> list:
+    """List available Advance Directive options (dictionary).
+
+    Returns list of {Id, Code, Name, ...} entries used as codes/descriptions
+    when saving.
+    """
+    url = _make_url(
+        "/mobiledoc/emr/patient/advanceDirective/get-advDirective-dictionary-list",
+        session)
+    r = client.get(url, headers=_get_headers(session))
+    r.raise_for_status()
+    data = r.json() if r.text.strip() else {}
+    if isinstance(data, dict):
+        return data.get("result", data.get("advDirDictionary", []))
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def get_advance_directive(client: requests.Session, session: dict,
+                          patient_id: str) -> dict:
+    """Read patient's Advance Directive entries.
+
+    Returns {"AdvDir": [...], "AdvDirDiscussionDate": "..."} where each AdvDir
+    entry is {Id, Code, Name, MDate, PtId, delflag}.
+    """
+    url = _make_url(
+        f"/mobiledoc/jsp/webemr/rightpanel/getAdvanceDirective.jsp"
+        f"?patientId={patient_id}",
+        session)
+    r = client.get(url, headers=_get_headers(session))
+    r.raise_for_status()
+    text = r.text.strip()
+    if not text:
+        return {"AdvDir": [], "AdvDirDiscussionDate": ""}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {"AdvDir": [], "AdvDirDiscussionDate": "", "_raw": text[:500]}
+    if isinstance(data, dict):
+        adv = data.get("AdvDir", [])
+        if isinstance(adv, dict):
+            adv = [adv]
+        data["AdvDir"] = adv if isinstance(adv, list) else []
+    return data
+
+
+def save_advance_directive(client: requests.Session, session: dict,
+                           patient_id: str, code: str, name: str) -> dict:
+    """Append an Advance Directive entry for the patient.
+
+    Uses the same JSP with `hdMode=save`. `code` and `name` come from
+    get_advance_directive_dictionary (Code/Name fields).
+    """
+    url = _make_url(
+        f"/mobiledoc/jsp/webemr/rightpanel/getAdvanceDirective.jsp"
+        f"?patientId={patient_id}"
+        f"&hdCode={urllib.parse.quote(str(code))}"
+        f"&hdDesc={urllib.parse.quote(str(name))}"
+        f"&hdMode=save",
+        session)
+    r = client.get(url, headers=_get_headers(session))
     r.raise_for_status()
     return {"status_code": r.status_code, "body": r.text[:500]}
 
@@ -1379,7 +1728,7 @@ def set_responsible_party(client: requests.Session, session: dict,
         gr_rel = "1"
         is_gr_pt = "1"
 
-    current = get_patient_info(client, session, patient_id)
+    current = _get_patient_info_core(client, session, patient_id)
     prim_ins = ""
     record_number = ""
     if isinstance(current, dict):
@@ -1420,11 +1769,12 @@ def edit_demographics(client: requests.Session, session: dict,
     income_data = changes.pop("income_data", None)
     contact_data = changes.pop("contact", None)
     update_contact_data = changes.pop("update_contact", None)
+    advance_directive_data = changes.pop("advance_directive", None)
 
     rp_keys = {"GrId", "GrRel", "IsGrPt"}
     rp_changes = {k: changes.pop(k) for k in rp_keys if k in changes}
 
-    current = get_patient_info(client, session, patient_id)
+    current = _get_patient_info_core(client, session, patient_id)
     if isinstance(current, dict) and "patient" in current:
         current = current["patient"]
 
@@ -1451,6 +1801,8 @@ def edit_demographics(client: requests.Session, session: dict,
         "empId", "empName", "empAddress", "empAddress2", "empCity", "empState",
         "empZip", "empPhone", "StAddress", "StAddress2", "stCity", "stState",
         "stZip", "notes", "maritalstatus", "doctorId", "refPrId", "rendPrId",
+        "refHygienistId", "primaryDentistId",
+        "MailOrderPharmacyId", "MOMemberId",
         "pmcId", "Translator", "deceased", "hl7Id", "DefaultLab", "DefaultDI",
         "nostatements", "isNative", "deceasedDate", "deceasedNotes",
         "characterestic", "language", "HomeMsgType", "CellMsgType",
@@ -1562,7 +1914,7 @@ def edit_demographics(client: requests.Session, session: dict,
         results["tab2"] = save_demographics_tab2(
             client, session, patient_id, tab2)
 
-    lrte_fields = {"race", "language", "Ethnicity"}
+    lrte_fields = {"race", "language", "Ethnicity", "tribe"}
     lrte_changed = {f for f in lrte_fields if f in changes}
     if lrte_changed:
         results["lrte"] = {}
@@ -1623,6 +1975,33 @@ def edit_demographics(client: requests.Session, session: dict,
         if uc_id and uc_fields:
             results["update_contact"] = update_contact(
                 client, session, patient_id, uc_id, uc_fields)
+
+    if advance_directive_data and isinstance(advance_directive_data, dict):
+        # Accept two shapes:
+        #   1. {"code": "...", "name": "..."} — add a new entry
+        #   2. {"add": [{"code":..,"name":..}, ...]} — batch add
+        # A raw read echo ({"AdvDir": [...], "AdvDirDiscussionDate": ...}) is
+        # ignored as a no-op (no add/name fields present).
+        adv_adds = []
+        if "add" in advance_directive_data:
+            extra = advance_directive_data.get("add") or []
+            if isinstance(extra, list):
+                adv_adds.extend(extra)
+        if ("code" in advance_directive_data
+                or "name" in advance_directive_data):
+            adv_adds.append(advance_directive_data)
+        if adv_adds:
+            adv_results = []
+            for entry in adv_adds:
+                if not isinstance(entry, dict):
+                    continue
+                code = entry.get("code") or entry.get("Code") or ""
+                name = entry.get("name") or entry.get("Name") or ""
+                if not (code or name):
+                    continue
+                adv_results.append(save_advance_directive(
+                    client, session, patient_id, code, name))
+            results["advance_directive"] = adv_results
 
     return results
 
