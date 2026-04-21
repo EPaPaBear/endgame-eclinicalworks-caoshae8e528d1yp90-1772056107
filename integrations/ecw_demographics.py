@@ -906,8 +906,14 @@ def get_sliding_fee_schedule(client: requests.Session, session: dict,
     r.raise_for_status()
     parsed = _parse_soap_xml(r.text)
     if isinstance(parsed, dict) and "return" in parsed:
-        return parsed["return"]
-    return parsed
+        ret = parsed["return"]
+    else:
+        ret = parsed
+    # "failed" means no active sliding fee schedule — not an error
+    if isinstance(ret, dict) and ret.get("status") == "failed":
+        return {"status": "no_sliding_fee_schedule",
+                "message": "No active sliding fee schedule assigned to this patient"}
+    return ret
 
 
 def get_insurance_info(client: requests.Session, session: dict,
@@ -1066,7 +1072,25 @@ def get_sogi_details(client: requests.Session, session: dict,
         session)
     r = client.post(url, headers=_get_headers(session))
     r.raise_for_status()
-    return r.json()
+    raw = r.json()
+    # Extract only the patient's actual values, not the option lists
+    opts = raw.get("patient_options", {})
+    so = opts.get("so_details", {})
+    gi_list = opts.get("gi_details", [])
+    pp_list = opts.get("pp_details", [])
+    so_list_ref = raw.get("so_list", [])
+    return {
+        "sexual_orientation": next(
+            (o["Name"] for o in so_list_ref if o.get("id") == so.get("id")), ""),
+        "sexual_orientation_snomed": so.get("snomed", ""),
+        "sexual_orientation_reason": so.get("reason", ""),
+        "gender_identity": [{"name": g.get("name", ""),
+                             "snomed": g.get("snomed", ""),
+                             "reason": g.get("reason", "")} for g in gi_list],
+        "pronouns": [p.get("name", "") for p in pp_list],
+        "birthsex": opts.get("birthsex", ""),
+        "transgender": opts.get("transgender", "N"),
+    }
 
 
 def calculate_sliding_fee(client: requests.Session, session: dict,
