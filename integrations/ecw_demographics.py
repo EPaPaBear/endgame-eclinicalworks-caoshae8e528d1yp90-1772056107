@@ -2520,7 +2520,7 @@ def search_diagnosis(client: requests.Session, session: dict,
                 "snomed_desc": snomed_desc,
             })
     except Exception:
-        pass
+        return [{"warning": "Diagnosis search encountered an error — session may have expired"}]
     return results
 
 
@@ -2576,7 +2576,7 @@ def search_procedure(client: requests.Session, session: dict,
                 "fee": fee,
             })
     except Exception:
-        pass
+        return [{"warning": "Procedure search encountered an error — session may have expired"}]
     return results
 
 
@@ -2711,6 +2711,8 @@ def create_referral(client: requests.Session, session: dict,
         return {"status_code": 400,
                 "body": {"error": "reason is required"}}
 
+    _warnings = []
+
     # --- Resolve provider names if not provided ---
     ref_from_name = data.get("ref_from_name", "")
     ref_to_name = data.get("ref_to_name", "")
@@ -2733,7 +2735,8 @@ def create_referral(client: requests.Session, session: dict,
                     else:
                         ref_to_name = name
             except Exception:
-                pass
+                label = "ref_from" if is_from else "ref_to"
+                _warnings.append(f"Could not resolve provider name for {label}_id={pid}")
 
     # --- Resolve specialty ID ---
     specialty_id = data.get("specialty_id", "")
@@ -2754,9 +2757,11 @@ def create_referral(client: requests.Session, session: dict,
                         specialty_id = s.get("Id", s.get("id", "0"))
                         break
         except Exception:
-            pass
+            _warnings.append(f"Could not resolve specialty '{specialty_name}'")
     if not specialty_id:
         specialty_id = "0"
+        if specialty_name:
+            _warnings.append(f"Specialty '{specialty_name}' not found — saved without specialty")
 
     # --- Resolve insurance ---
     ins_id = data.get("insurance_id", "")
@@ -2776,7 +2781,7 @@ def create_referral(client: requests.Session, session: dict,
             elif isinstance(row, list) and row:
                 ins_id = row[0].get("insid", "0")
         except Exception:
-            pass
+            _warnings.append("Could not resolve patient's current insurance")
     if not ins_id:
         ins_id = "0"
 
@@ -2808,8 +2813,12 @@ def create_referral(client: requests.Session, session: dict,
     to_fac_id = str(data.get("to_facility_id", "0"))
     if from_fac_id == "0":
         from_fac_id = _resolve_fac(ref_from_id)
+        if from_fac_id == "0":
+            _warnings.append(f"No default facility found for from provider {ref_from_id} — pass from_facility_id explicitly")
     if to_fac_id == "0":
         to_fac_id = _resolve_fac(ref_to_id)
+        if to_fac_id == "0":
+            _warnings.append(f"No default facility found for to provider {ref_to_id} — pass to_facility_id explicitly")
 
     # --- Dates ---
     today = time.strftime("%Y-%m-%d")
@@ -2869,8 +2878,10 @@ def create_referral(client: requests.Session, session: dict,
                         ids.append(str(dp[0].get("dgId",
                                        dp[0].get("itemId",
                                        dp[0].get("Id", "")))))
+                    else:
+                        _warnings.append(f"Diagnosis code '{d['code']}' not found — use search-diagnosis to find valid codes")
                 except Exception:
-                    pass
+                    _warnings.append(f"Could not look up diagnosis code '{d['code']}'")
         diagnosis_ids = ",".join(ids)
     elif isinstance(diagnosis_raw, str):
         diagnosis_ids = diagnosis_raw
@@ -3052,6 +3063,8 @@ def create_referral(client: requests.Session, session: dict,
              "startDate": d.get("referralStartDate"),
              "referralTo": d.get("referralTo")}
             for d in dups]
+    if _warnings:
+        result["body"]["warnings"] = _warnings
     return result
 
 
