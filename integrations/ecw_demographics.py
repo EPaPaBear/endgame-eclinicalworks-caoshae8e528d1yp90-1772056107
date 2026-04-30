@@ -68,6 +68,11 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       delete-guarantor      - Delete a guarantor (fails if linked to insurances)
       search-patient        - Search patients by name and optionally DOB
       search-guarantor      - Search guarantors by name
+      search-diagnosis      - Search ICD-10 diagnosis codes (IMO engine)
+      search-procedure     - Search CPT/HCPCS procedure codes
+      list-referrals        - List incoming/outgoing referrals for a patient
+      create-referral       - Create a new incoming/outgoing referral
+      delete-referral       - Delete a referral by ID
       get-appointments       - Get last and next appointments
       update-appointment    - Update appointment fields and/or add payment
       list-document-folders - List available document folders
@@ -138,6 +143,46 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
             max_count = int(input_data.get("max_count", 50))
             return {"resources": search_resources(
                 client, session, name=name, max_count=max_count)}
+
+        elif action == "search-diagnosis":
+            search = input_data.get("search", "")
+            if not search:
+                return {"status_code": 400,
+                        "body": {"error": "search is required"}}
+            search_by = input_data.get("search_by", "code")
+            max_count = int(input_data.get("max_count", 10))
+            return {"status_code": 200,
+                    "body": {"results": search_diagnosis(
+                        client, session, search, search_by, max_count)}}
+
+        elif action == "search-procedure":
+            search = input_data.get("search", "")
+            if not search:
+                return {"status_code": 400,
+                        "body": {"error": "search is required"}}
+            search_by = input_data.get("search_by", "code")
+            max_count = int(input_data.get("max_count", 20))
+            return {"status_code": 200,
+                    "body": {"results": search_procedure(
+                        client, session, search, search_by, max_count)}}
+
+        elif action == "list-referrals":
+            ref_type = input_data.get("referral_type", "Incoming")
+            offset = int(input_data.get("offset", 0))
+            rows = int(input_data.get("rows_per_page", 50))
+            return list_referrals(client, session, patient_id,
+                                  ref_type, offset, rows)
+
+        elif action == "create-referral":
+            return create_referral(client, session, patient_id, input_data)
+
+        elif action == "delete-referral":
+            ref_id = input_data.get("referral_id", "")
+            if not ref_id:
+                return {"status_code": 400,
+                        "body": {"error": "referral_id is required"}}
+            ref_type = input_data.get("referral_type", "Incoming")
+            return delete_referral(client, session, ref_id, ref_type)
 
         elif action == "search-facility":
             return {"facilities": search_facilities(
@@ -395,6 +440,9 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "create-guarantor", "update-guarantor",
                                  "delete-guarantor", "search-patient",
                                  "search-guarantor",
+                                 "search-diagnosis", "search-procedure",
+                                 "list-referrals", "create-referral",
+                                 "delete-referral",
                              ]}}
 
 
@@ -2420,6 +2468,614 @@ def update_appointment(client: requests.Session, session: dict,
                 result["body"]["payment_detail"] = det_ret.get("status", "success") if isinstance(det_ret, dict) else det_text[:200]
 
     return result
+
+
+# ── Diagnosis & Procedure Search ───────────────────────────────────────────────
+
+def search_diagnosis(client: requests.Session, session: dict,
+                     search: str, search_by: str = "code",
+                     max_count: int = 10) -> list:
+    """Search ICD-10 diagnosis codes via IMO SmartICD engine.
+
+    search_by: "code" (ICD-10 code like "I10") or "name" (description like "hypertension")
+    Returns list of {dgId, code, icd10, name, snomed_code, snomed_desc}.
+    The dgId can be passed directly to create-referral's diagnosis field.
+    """
+    uid = session.get("tr_user_id", session.get("session_did", ""))
+    sb = "code" if search_by.lower().startswith("c") else "name"
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/IMO/DoSmartICDSearch.jsp"
+        f"?vendorcode=IMO&searchby={sb}&search={urllib.parse.quote(search)}"
+        f"&ncounter=1&maxcount={max_count}&useEnhancedPagination=true"
+        f"&parentId=0&useicd10=1&encounterId=0&frm=asmt&userId={uid}",
+        session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    # Parse <icd> elements (non-standard XML, not <row>)
+    results = []
+    try:
+        import xml.etree.ElementTree as _ET
+        root = _ET.fromstring(r.text)
+        for icd in root.iter("icd"):
+            item_id = icd.findtext("itemId", "")
+            icd_data = icd.findtext("ICDData", "")
+            icd10 = icd.findtext("ICD10", "")
+            name = icd.findtext("name", "")
+            snomed = icd.findtext("snowMedCode", "")
+            snomed_desc = icd.findtext("snowMedDesc", "")
+            # dgId candidate from ICDData blob (parts[0])
+            dg_id = ""
+            if icd_data:
+                parts = icd_data.split("*")
+                if parts and parts[0].isdigit():
+                    dg_id = parts[0]
+            if not icd10:
+                continue
+            results.append({
+                "dgId": dg_id or item_id,
+                "code": icd.findtext("code", ""),
+                "icd10": icd10,
+                "name": name,
+                "snomed_code": snomed,
+                "snomed_desc": snomed_desc,
+            })
+    except Exception:
+        pass
+    return results
+
+
+def search_procedure(client: requests.Session, session: dict,
+                     search: str, search_by: str = "code",
+                     max_count: int = 20) -> list:
+    """Search CPT/HCPCS procedure codes.
+
+    search_by: "code" (CPT code like "99213") or "name" (description)
+    Returns list of {itemId, code, name, keyname, fee}.
+    The itemId can be passed to create-referral's procedures field (pipe-delimited).
+    """
+    sb = "code" if search_by.lower().startswith("c") else "name"
+    condition = "Starts With" if sb == "code" else "Contains"
+    lookup_xml = (
+        '<lookup xsi:type="xsd:string">'
+        f'<searchBy xsi:type="xsd:string">{sb}</searchBy>'
+        f'<code xsi:type="xsd:string">{search}</code>'
+        '<keyName xsi:type="xsd:string">CPTCodes</keyName>'
+        '<keyName xsi:type="xsd:string">HCPCS</keyName>'
+        f'<counter xsi:type="xsd:string">1</counter>'
+        f'<maxcount xsi:type="xsd:string">{max_count}</maxcount>'
+        '<bActive xsi:type="xsd:string">Active</bActive>'
+        '<ShowInvalid xsi:type="xsd:string">0</ShowInvalid>'
+        '<Fee xsi:type="xsd:string"></Fee>'
+        '<Amount xsi:type="xsd:string">0.00</Amount>'
+        '<FeeSchId xsi:type="xsd:string">0</FeeSchId>'
+        '<ValidDate xsi:type="xsd:string"></ValidDate>'
+        f'<Condition xsi:type="xsd:string">{condition}</Condition>'
+        '</lookup>')
+    form_data = _soap_envelope(lookup_xml)
+    r = _post(client, session,
+              "/mobiledoc/jsp/catalog/xml/edi/LookupCPTCodes.jsp?parentId=0&encId=0",
+              {"FormData": form_data})
+    r.raise_for_status()
+    results = []
+    try:
+        import xml.etree.ElementTree as _ET
+        root = _ET.fromstring(r.text)
+        for proc in root.iter("procedure"):
+            item_id = proc.findtext("itemId", "")
+            code = proc.findtext("code", "")
+            name = proc.findtext("name", "")
+            keyname = proc.findtext("keyname", "")
+            fee = proc.findtext("fee", "0.0")
+            if not item_id or not code:
+                continue
+            results.append({
+                "itemId": item_id,
+                "code": code,
+                "name": name,
+                "keyname": keyname,
+                "fee": fee,
+            })
+    except Exception:
+        pass
+    return results
+
+
+# ── Referrals ──────────────────────────────────────────────────────────────────
+
+def list_referrals(client: requests.Session, session: dict,
+                   patient_id: str, referral_type: str = "Incoming",
+                   offset: int = 0, rows_per_page: int = 50) -> dict:
+    ref_code = "I" if referral_type.lower().startswith("i") else "O"
+    data = {
+        "PatientId": str(patient_id),
+        "referralType": ref_code,
+        "offset": str(offset),
+        "rowsPerPage": str(rows_per_page),
+        "isTotalCountRequired": "true",
+    }
+    r = _post(client, session,
+              "/mobiledoc/jsp/catalog/xml/getPtReferrals.jsp", data)
+    r.raise_for_status()
+    referrals = _parse_soap_list(r.text, "row")
+    # Extract total count
+    parsed = _parse_soap_xml(r.text)
+    count = 0
+    try:
+        ret = parsed.get("return", {})
+        rs = ret.get("resultset", ret)
+        d = rs.get("data", rs)
+        count = int(d.get("count", len(referrals)))
+    except (AttributeError, ValueError, TypeError):
+        count = len(referrals)
+    # Clean up each referral
+    cleaned = []
+    for ref in referrals:
+        # Build display names from first/last (refFromName may be just ",")
+        from_name = ref.get("refFromName", "")
+        if not from_name or from_name.strip(",").strip() == "":
+            fl = ref.get("refFromLastName", "")
+            ff = ref.get("refFromFirstName", "")
+            from_name = f"{fl}, {ff}".strip(", ") if fl or ff else ""
+        to_name = ref.get("refToName", "")
+        if not to_name or to_name.strip(",").strip() == "":
+            tl = ref.get("refToLastName", "")
+            tf = ref.get("refToFirstName", "")
+            to_name = f"{tl}, {tf}".strip(", ") if tl or tf else ""
+        cleaned.append({
+            "referralId": ref.get("referralId", ""),
+            "date": ref.get("date", ""),
+            "reason": ref.get("reason", ""),
+            "startDate": ref.get("refStDate", ""),
+            "endDate": ref.get("refEnddate", ""),
+            "visitsAllowed": ref.get("visitsAllowed", ""),
+            "visitsUsed": ref.get("visitsUsed", ""),
+            "referralFrom": from_name,
+            "referralTo": to_name,
+            "specialty": ref.get("refToSpeciality", ""),
+            "insurance": ref.get("insName", ""),
+            "insuranceId": ref.get("insId", ""),
+            "status": ref.get("status", ""),
+            "referralSubType": ref.get("referralsubType", ""),
+            "authNo": ref.get("authNo", ""),
+            "cptUnitsAllowed": ref.get("cptunitsallowed", ""),
+            "cptUnitsUsed": ref.get("cptunitsused", ""),
+        })
+    return {
+        "status_code": 200,
+        "body": {
+            "referral_type": referral_type,
+            "referrals": cleaned,
+            "total_count": count,
+            "offset": offset,
+        },
+    }
+
+
+def create_referral(client: requests.Session, session: dict,
+                    patient_id: str, data: dict) -> dict:
+    """Create a new referral (incoming or outgoing).
+
+    Required fields:
+        ref_from_id        - Provider ID for Referral From
+        ref_to_id          - Provider ID for Referral To
+        specialty          - Specialty name (e.g. "Internal Medicine")
+        reason             - Referral reason text (pipe-delimited for multiple)
+        diagnosis          - Comma-separated diagnosis IDs, or list of
+                             {"code": "ICD-10", "name": "desc"} dicts
+
+    Optional fields:
+        referral_type      - "Incoming" (default) or "Outgoing"
+        ref_from_name      - Display name (auto-resolved if omitted)
+        ref_to_name        - Display name (auto-resolved if omitted)
+        from_facility_id   - Facility ID for From provider (default 0)
+        to_facility_id     - Facility ID for To provider (default 0)
+        insurance_id       - Insurance ID (default: patient's current primary)
+        auth_type          - Authorization type name (e.g. "PENDING I")
+        auth_code          - Authorization code string
+        start_date         - YYYY-MM-DD (default: today)
+        end_date           - YYYY-MM-DD (default: start + 90 days)
+        referral_date      - YYYY-MM-DD (default: today)
+        received_date      - YYYY-MM-DD (default: 0000-00-00)
+        appt_date          - YYYY-MM-DD (default: 0000-00-00)
+        appt_time          - HH:MM:SS A (default: 00:00:00 A)
+        visits_allowed     - Number of visits allowed (default "6")
+        unit_type          - e.g. "V (VISIT)", "VM (VISIT/MONTH)" (default "V (VISIT)")
+        priority           - "0"=Routine, "1"=Urgent, "2"=Stat (default "0")
+        status             - "Open", "Pending", etc. (default "Open")
+        sub_status_id      - Sub-status numeric ID (default "0")
+        pos                - Place of Service code (default "11")
+        assigned_to_id     - Staff ID for Assigned To (default "0")
+        assigned_to_name   - Staff display name
+        case_id            - Open Cases ID (default "0")
+        encounter_id       - Link to an encounter (default "0")
+        notes              - General notes text
+        clinical_notes     - Clinical notes text
+        procedures         - Comma-separated procedure IDs
+        ref_sub_type       - "Visit" (default) or "Procedure"
+    """
+    ref_type_str = data.get("referral_type", "Incoming")
+    ref_type_code = "I" if ref_type_str.lower().startswith("i") else "O"
+    uid = session.get("tr_user_id", session.get("session_did", ""))
+    uname = session.get("user_name", "WEDGE,AI")
+
+    # --- Required fields ---
+    ref_from_id = str(data.get("ref_from_id", "0"))
+    ref_to_id = str(data.get("ref_to_id", "0"))
+    specialty_name = data.get("specialty", "")
+    reason_text = data.get("reason", "")
+
+    if ref_from_id == "0" or ref_to_id == "0":
+        return {"status_code": 400,
+                "body": {"error": "ref_from_id and ref_to_id are required"}}
+    if not reason_text:
+        return {"status_code": 400,
+                "body": {"error": "reason is required"}}
+
+    # --- Resolve provider names if not provided ---
+    ref_from_name = data.get("ref_from_name", "")
+    ref_to_name = data.get("ref_to_name", "")
+    if not ref_from_name or not ref_to_name:
+        for pid, is_from in [(ref_from_id, True), (ref_to_id, False)]:
+            if (is_from and ref_from_name) or (not is_from and ref_to_name):
+                continue
+            try:
+                pr = _post(client, session,
+                           "/mobiledoc/jsp/catalog/xml/getProviderData.jsp",
+                           {"nd": str(int(time.time() * 1000)),
+                            "providerId": pid})
+                pp = _parse_soap_xml(pr.text)
+                ret = pp.get("return", pp) if isinstance(pp, dict) else pp
+                prov = ret.get("provider", ret) if isinstance(ret, dict) else ret
+                if isinstance(prov, dict):
+                    name = f"{prov.get('lastName','')}, {prov.get('firstName','')}"
+                    if is_from:
+                        ref_from_name = name
+                    else:
+                        ref_to_name = name
+            except Exception:
+                pass
+
+    # --- Resolve specialty ID ---
+    specialty_id = data.get("specialty_id", "")
+    if not specialty_id and specialty_name:
+        try:
+            sr = _post(client, session,
+                       "/mobiledoc/jsp/uadmin/GetSpecialities.jsp", {})
+            specs = _parse_soap_list(sr.text, "row")
+            for s in specs:
+                sname = s.get("Speciality", s.get("speciality", ""))
+                if sname and sname.lower() == specialty_name.lower():
+                    specialty_id = s.get("Id", s.get("id", "0"))
+                    break
+            if not specialty_id:
+                for s in specs:
+                    sname = s.get("Speciality", s.get("speciality", ""))
+                    if sname and sname.lower().startswith(specialty_name.lower()):
+                        specialty_id = s.get("Id", s.get("id", "0"))
+                        break
+        except Exception:
+            pass
+    if not specialty_id:
+        specialty_id = "0"
+
+    # --- Resolve insurance ---
+    ins_id = data.get("insurance_id", "")
+    if not ins_id:
+        try:
+            ir = client.get(
+                _make_url(f"/mobiledoc/jsp/catalog/xml/getCurrentIns.jsp"
+                          f"?PatientId={patient_id}&encounterId=0", session),
+                headers=_get_headers(session))
+            ip = _parse_soap_xml(ir.text)
+            ret = ip.get("return", ip) if isinstance(ip, dict) else ip
+            rs = ret.get("resultset", ret) if isinstance(ret, dict) else ret
+            d = rs.get("data", rs) if isinstance(rs, dict) else rs
+            row = d.get("row", d) if isinstance(d, dict) else d
+            if isinstance(row, dict):
+                ins_id = row.get("insid", "0")
+            elif isinstance(row, list) and row:
+                ins_id = row[0].get("insid", "0")
+        except Exception:
+            pass
+    if not ins_id:
+        ins_id = "0"
+
+    # --- Resolve facility IDs ---
+    def _resolve_fac(provider_id):
+        """Get provider's primary service location. Try ProviderType 1, fallback to 5."""
+        for ptype in ["1", "5"]:
+            try:
+                fr = _post(client, session,
+                           "/mobiledoc/jsp/uadmin/GetProviderFacId.jsp",
+                           {"ProviderId": provider_id, "ProviderType": ptype,
+                            "specialtyName": "undefined"})
+                fp = _parse_soap_xml(fr.text)
+                ret = fp.get("return", fp) if isinstance(fp, dict) else fp
+                if isinstance(ret, dict):
+                    rs = ret.get("resultset", ret)
+                    d = rs.get("data", rs) if isinstance(rs, dict) else rs
+                    row = d.get("row", d) if isinstance(d, dict) else d
+                    if isinstance(row, dict):
+                        fid = row.get("primaryservicelocation",
+                                      row.get("FacId", row.get("facId", "")))
+                        if fid and str(fid) != "0":
+                            return str(fid)
+            except Exception:
+                pass
+        return "0"
+
+    from_fac_id = str(data.get("from_facility_id", "0"))
+    to_fac_id = str(data.get("to_facility_id", "0"))
+    if from_fac_id == "0":
+        from_fac_id = _resolve_fac(ref_from_id)
+    if to_fac_id == "0":
+        to_fac_id = _resolve_fac(ref_to_id)
+
+    # --- Dates ---
+    today = time.strftime("%Y-%m-%d")
+    start_date = data.get("start_date", today)
+    referral_date = data.get("referral_date", today)
+    # Default end = start + 90 days
+    end_date = data.get("end_date", "")
+    if not end_date:
+        from datetime import datetime as _dt, timedelta as _td
+        try:
+            sd = _dt.strptime(start_date, "%Y-%m-%d")
+            end_date = (sd + _td(days=90)).strftime("%Y-%m-%d")
+        except ValueError:
+            end_date = start_date
+    received_date = data.get("received_date", "0000-00-00")
+    appt_date = data.get("appt_date", "0000-00-00")
+    appt_time = data.get("appt_time", "00:00:00 A")
+
+    # --- Optional fields with defaults ---
+    visits_allowed = str(data.get("visits_allowed", "6"))
+    unit_type = data.get("unit_type", "V (VISIT)")
+    priority = str(data.get("priority", "0"))
+    status = data.get("status", "open")
+    sub_status_id = str(data.get("sub_status_id", "0"))
+    pos = str(data.get("pos", "11"))
+    assigned_to_id = str(data.get("assigned_to_id", "0"))
+    assigned_to_name = data.get("assigned_to_name", "")
+    case_id = str(data.get("case_id", "0"))
+    encounter_id = str(data.get("encounter_id", "0"))
+    notes = data.get("notes", "")
+    clinical_notes = data.get("clinical_notes", "")
+    auth_type = data.get("auth_type", "")
+    auth_code = data.get("auth_code", "")
+    ref_sub_type = data.get("ref_sub_type", "Visit")
+
+    # --- Diagnosis: accept IDs string or list of {code, name} ---
+    diagnosis_raw = data.get("diagnosis", "")
+    diagnosis_ids = ""
+    if isinstance(diagnosis_raw, list):
+        ids = []
+        for d in diagnosis_raw:
+            if isinstance(d, dict) and d.get("id"):
+                ids.append(str(d["id"]))
+            elif isinstance(d, dict) and d.get("code"):
+                # Use IMO SmartICD search to resolve ICD code to dgId
+                try:
+                    dr = _post(client, session,
+                               "/mobiledoc/jsp/catalog/xml/IMO/DoSmartICDSearch.jsp"
+                               f"?vendorcode=IMO&searchby=code"
+                               f"&search={d['code']}&ncounter=1&maxcount=5"
+                               f"&useEnhancedPagination=true&parentId=0"
+                               f"&useicd10=1&encounterId=0&frm=asmt"
+                               f"&userId={uid}",
+                               {})
+                    dp = _parse_soap_list(dr.text, "row")
+                    if dp:
+                        ids.append(str(dp[0].get("dgId",
+                                       dp[0].get("itemId",
+                                       dp[0].get("Id", "")))))
+                except Exception:
+                    pass
+        diagnosis_ids = ",".join(ids)
+    elif isinstance(diagnosis_raw, str):
+        diagnosis_ids = diagnosis_raw
+
+    # --- Procedures: pipe-delimited internal IDs ---
+    procedures = data.get("procedures", "")
+    if isinstance(procedures, list):
+        procedures = "|".join(str(p) for p in procedures)
+
+    # --- Build SOAP XML ---
+    def _cdata(v):
+        return f"<![CDATA[{v}]]>"
+
+    def _el(tag, val, xtype="xsd:string"):
+        return f'<{tag} xsi:type="{xtype}">{val}</{tag}>'
+
+    xml_fields = "".join([
+        _el("patientId", patient_id, "xsd:int"),
+        _el("insId", ins_id, "xsd:int"),
+        _el("refFrom", ref_from_id),
+        _el("refFromName", _cdata(ref_from_name)),
+        _el("refFromP2pNPI", "0", "xsd:int"),
+        _el("authNo", _cdata(auth_code)),
+        _el("ReferralNumber", ""),
+        _el("date", referral_date),
+        _el("reason", _cdata(reason_text)),
+        _el("diagnosis", diagnosis_ids),
+        _el("Procedures", procedures),
+        _el("EmCodes", ""),
+        _el("subStatus", sub_status_id, "xsd:int"),
+        _el("refStDate", start_date),
+        _el("refEndDate", end_date),
+        _el("visitsAllowed", visits_allowed),
+        _el("cptunitsallowed", str(data.get("cpt_units_allowed", "0"))),
+        _el("cptunitsused", str(data.get("cpt_units_used", "0"))),
+        _el("refTo", ref_to_id),
+        _el("refToName", _cdata(ref_to_name)),
+        _el("refToP2pNPI", "0", "xsd:int"),
+        _el("fromDirectAddress", ""),
+        _el("toDirectAddress", ""),
+        _el("nppes", "0"),
+        _el("notes", _cdata(notes)),
+        _el("referralType", ref_type_code),
+        _el("refSubType", ref_sub_type),
+        _el("priority", priority),
+        _el("assignedToId", assigned_to_id),
+        _el("assignedTo", _cdata(assigned_to_name)),
+        _el("status", status),
+        _el("FromFacId", from_fac_id, "xsd:int"),
+        _el("ToFacId", to_fac_id, "xsd:int"),
+        _el("AuthType", _cdata(auth_type)),
+        _el("FrontOfficeAuth", "0", "xsd:int"),
+        _el("extNHXApptBlockId", "0"),
+        _el("Attachments", ""),
+        _el("extNHXRefTxId", "0"),
+        _el("AppointmentDate", appt_date),
+        _el("PrevAppointmentDate", "0000-00-00"),
+        _el("ApptTime", appt_time),
+        _el("ReceivedDate", received_date),
+        _el("ClinicalNotes", _cdata(clinical_notes)),
+        _el("encounterid", encounter_id, "xsd:int"),
+        _el("Speciality", specialty_id, "xsd:int"),
+        _el("caseid", case_id),
+        _el("UserName", _cdata(uname)),
+        _el("UID", uid),
+        _el("POS", pos),
+        _el("UnitType", unit_type),
+        _el("nhxReqId", ""),
+        _el("SAStatus", ""),
+        _el("ProcedureUnits", ""),
+        _el("isHealowAppt", "0"),
+        _el("healowApptGUID", "undefined"),
+        _el("Attachdefaults", "1"),
+        _el("RefSupportingData",
+            '{"isHISPTxCapable":false,"isReceiverFTPEnabled":false}'),
+        _el("isReferralReopened", "false"),
+        _el("referral360id", ""),
+        _el("cloneReferralId", "0", "xsd:int"),
+    ])
+
+    referral_xml = (
+        '<referral xsi:type="xsd:string">'
+        + xml_fields
+        + '</referral>')
+    form_data = _soap_envelope(referral_xml)
+
+    # --- Duplicate check ---
+    try:
+        dup_resp = client.post(
+            _make_url("/mobiledoc/referral/checkDuplicateReferral", session),
+            json={
+                "patientId": str(patient_id),
+                "referralStartDate": start_date,
+                "refTo": ref_to_id,
+                "toFacId": to_fac_id,
+                "specialty": specialty_id,
+                "referralType": ref_type_str,
+                "trUserId": uid,
+            },
+            headers={**_get_headers(session),
+                     "Content-Type": "application/json"})
+        dup_data = dup_resp.json()
+        dups = (dup_data.get("responseData", {}) or {}).get(
+            "duplicateReferrals", [])
+    except Exception:
+        dups = []
+
+    # --- Save referral ---
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    save_params = {
+        "referralId": "0",
+        "referral360id": "",
+        "cancelReferral": "",
+        "nhxMsgTxId": "0",
+        "validateTransitStatus": "false",
+        "uploadptdocs": "false",
+        "scannedBy": uname,
+        "doNotSaveSA": "0",
+        "referralType": ref_type_str,
+        "timeZone": "Atlantic/Reykjavik",
+        "timeZoneName": "GMT",
+        "browserTime": now,
+        "uid": uid,
+        "uName": uname,
+        "context": "webemr",
+        "FormData": form_data,
+    }
+    r = _post(client, session,
+              "/mobiledoc/jsp/catalog/xml/setReferral.jsp", save_params)
+    r.raise_for_status()
+    parsed = _parse_soap_xml(r.text)
+    ret = parsed.get("return", parsed) if isinstance(parsed, dict) else parsed
+
+    if not isinstance(ret, dict) or ret.get("status") != "success":
+        err = ret.get("errormsg", r.text[:200]) if isinstance(ret, dict) else r.text[:200]
+        return {"status_code": 400, "body": {"error": err, "raw": str(ret)[:300]}}
+
+    referral_id = ret.get("referralId", "0")
+
+    # --- Save referral visit (links referral to encounter) ---
+    if encounter_id and encounter_id != "0":
+        visit_note = (f"Referral Auth No:{auth_code} "
+                      f"Start date:{start_date.replace('-','/')} "
+                      f"End date:{end_date.replace('-','/')}"
+                      if auth_code else
+                      f"Start date:{start_date} End date:{end_date}")
+        visit_xml = (
+            '<visit xsi:type="xsd:string">'
+            + _el("referralId", referral_id, "xsd:int")
+            + _el("encounterId", encounter_id, "xsd:int")
+            + _el("notes", visit_note)
+            + _el("visitNo", "1")
+            + _el("refType", ref_sub_type)
+            + _el("invoiceId", "0")
+            + _el("unitsUsed", "0")
+            + '</visit>')
+        visit_form = _soap_envelope(visit_xml)
+        try:
+            _post(client, session,
+                  "/mobiledoc/p2pmodule/referral/visits/referralvisits",
+                  {"referralId": referral_id, "referral360id": "",
+                   "FormData": visit_form})
+        except Exception:
+            pass
+
+    result = {
+        "status_code": 200,
+        "body": {
+            "status": "success",
+            "referralId": referral_id,
+            "referral_type": ref_type_str,
+        },
+    }
+    if dups:
+        result["body"]["duplicate_warning"] = [
+            {"referralId": d.get("referralId"),
+             "status": d.get("referralStatus"),
+             "reason": d.get("reason"),
+             "startDate": d.get("referralStartDate"),
+             "referralTo": d.get("referralTo")}
+            for d in dups]
+    return result
+
+
+def delete_referral(client: requests.Session, session: dict,
+                    referral_id: str, referral_type: str = "Incoming") -> dict:
+    log_type = "I" if referral_type.lower().startswith("i") else "O"
+    data = {
+        "referralId": str(referral_id),
+        "recType": "REF",
+        "logType": log_type,
+        "uid": session.get("tr_user_id", session.get("session_did", "")),
+        "uName": session.get("user_name", "WEDGE,AI"),
+        "context": "webemr",
+    }
+    r = _post(client, session,
+              "/mobiledoc/jsp/catalog/xml/deleteReferral.jsp", data)
+    r.raise_for_status()
+    text = r.text.strip()
+    if text == "null" or "success" in text.lower():
+        return {"status_code": 200, "body": {"status": "success",
+                "referralId": referral_id}}
+    parsed = _parse_soap_xml(text)
+    ret = parsed.get("return", parsed) if isinstance(parsed, dict) else parsed
+    return {"status_code": 400, "body": ret}
 
 
 # ── Patient Search ─────────────────────────────────────────────────────────────
