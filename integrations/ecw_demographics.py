@@ -73,7 +73,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       list-referrals        - List incoming/outgoing referrals for a patient
       create-referral       - Create a new incoming/outgoing referral
       delete-referral       - Delete a referral by ID
-      get-appointments       - Get last and next appointments
+      get-encounters         - List all encounters (office visits + telephone)
+      get-appointments       - List appointments only (office visits, filtered from encounters)
       update-appointment    - Update appointment fields and/or add payment
       list-document-folders - List available document folders
       upload-document       - Upload document to any folder
@@ -355,8 +356,28 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
         elif action == "create-telephone-encounter":
             return create_telephone_encounter(client, session, patient_id, input_data)
 
+        elif action == "get-encounters":
+            from_date = input_data.get("from_date", "")
+            to_date = input_data.get("to_date", "")
+            facility_id = input_data.get("facility_id", "0")
+            provider_id = input_data.get("provider_id", "0")
+            enc_type = input_data.get("enc_type", "")  # "", "1" (office), "2" (tel)
+            max_count = int(input_data.get("max_count", 50))
+            offset = int(input_data.get("offset", 0))
+            return get_encounters(client, session, patient_id,
+                                  from_date, to_date, facility_id, provider_id,
+                                  enc_type, max_count, offset)
+
         elif action == "get-appointments":
-            return get_appointments(client, session, patient_id)
+            from_date = input_data.get("from_date", "")
+            to_date = input_data.get("to_date", "")
+            facility_id = input_data.get("facility_id", "0")
+            provider_id = input_data.get("provider_id", "0")
+            max_count = int(input_data.get("max_count", 50))
+            offset = int(input_data.get("offset", 0))
+            return get_appointments_v2(client, session, patient_id,
+                                       from_date, to_date, facility_id,
+                                       provider_id, max_count, offset)
 
         elif action == "update-appointment":
             enc_id = input_data.get("enc_id", "")
@@ -436,6 +457,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "save-communication-notes", "save-communication-settings",
                                  "send-sms",
                                  "create-telephone-encounter",
+                                 "get-encounters",
                                  "get-appointments", "update-appointment",
                                  "create-guarantor", "update-guarantor",
                                  "delete-guarantor", "search-patient",
@@ -2141,7 +2163,243 @@ def edit_income(client: requests.Session, session: dict,
     return result
 
 
-# ── Appointments ──────────────────────────────────────────────────────────────
+# ── Encounters & Appointments ──────────────────────────────────────────────────
+
+def _fetch_pt_encounters(client: requests.Session, session: dict,
+                         patient_id: str, from_date: str = "",
+                         to_date: str = "", facility_id: str = "0",
+                         provider_id: str = "0", max_count: int = 50,
+                         offset: int = 0) -> list:
+    """Raw fetch from getPtEncounters.jsp. Returns list of encounter dicts."""
+    qs = urllib.parse.urlencode({
+        "PatientId": patient_id,
+        "FacilityId": facility_id,
+        "LogView": "true",
+        "EncOptions": "1",
+        "DelOptions": "0",
+        "ProviderId": provider_id,
+        "UnlockedEnc": "0",
+        "fromDate": from_date,
+        "toDate": to_date,
+        "ICDItemId": "0",
+        "strDeviceType": "webemr",
+        "CaseId": "0",
+        "CaseTypeId": "0",
+        "ecwVisitStatusFlag": "true",
+        "blockedEncounterFlagRequest": "true",
+        "includeConfidentialInfo": "true",
+        "excludeBlockedEncounter": "false",
+        "counter": str(offset),
+        "MAXCOUNT": str(max_count),
+        "callingfor": "PATIENT_HUB_ENCOUNTER_LOOKUP",
+        "IncludeEncCount": "1",
+    })
+    url = _make_url(
+        f"/mobiledoc/jsp/catalog/xml/getPtEncounters.jsp?{qs}", session)
+    r = client.post(url, headers=_get_headers(session))
+    r.raise_for_status()
+    return _parse_soap_list(r.text, "row")
+
+
+def _clean_encounter(enc: dict) -> dict:
+    """Normalize encounter dict to clean output."""
+    enc_type = enc.get("encType", "")
+    is_appointment = enc_type == "1" and enc.get("officeVisitType", "") == "1"
+    provider_name = ""
+    ln = enc.get("ulname", "")
+    fn = enc.get("ufname", "")
+    if ln or fn:
+        provider_name = f"{ln}, {fn}".strip(", ")
+    return {
+        "encounterId": enc.get("encounterID", ""),
+        "date": enc.get("date", ""),
+        "startTime": enc.get("startTime", ""),
+        "visitType": enc.get("visitType", ""),
+        "visitTypeDesc": enc.get("visitTypeDetails", ""),
+        "status": enc.get("status", ""),
+        "statusDesc": enc.get("ecwVisitStatusDesc", ""),
+        "reason": enc.get("reason", ""),
+        "encType": enc_type,
+        "encTypeDesc": "Office Visit" if enc_type == "1" else
+                       "Telephone Encounter" if enc_type == "2" else
+                       f"Type {enc_type}",
+        "isAppointment": is_appointment,
+        "encLock": enc.get("encLock", ""),
+        "signed": enc.get("encLock", "0") == "1",
+        "providerId": enc.get("doctorID", ""),
+        "providerName": provider_name,
+        "facilityId": enc.get("facilityId", ""),
+        "facilityName": enc.get("FacName", ""),
+        "facilityCode": enc.get("code", ""),
+        "resourceId": enc.get("resourceId", ""),
+        # Enrichment defaults (overwritten by _enrich_encounter)
+        "visitSubTypeId": "",
+        "visitSubTypeCode": "",
+        "visitSubTypeName": "",
+        "newPt": False,
+        "billingNotes": "",
+        "generalNotes": "",
+        "copay": "0.00",
+    }
+
+
+def _enrich_encounter(client: requests.Session, session: dict,
+                      patient_id: str, base: dict,
+                      hdrs: dict, subtype_index: dict) -> dict:
+    """Enrich a cleaned encounter with concurrency, visit sub-type, and copay."""
+    enc_id = base.get("encounterId", "")
+    if not enc_id:
+        return base
+    # Visit sub-type from newAppointment.jsp encdata XML
+    if base.get("isAppointment"):
+        try:
+            na_url = _make_url(
+                f"/mobiledoc/jsp/webemr/scheduling/newAppointment.jsp"
+                f"?encounterId={enc_id}&parentScreen=patientHub", session)
+            nr = client.get(na_url, headers=hdrs)
+            if nr.status_code == 200:
+                enc_start = nr.text.find("encdata")
+                enc_chunk = nr.text[enc_start:enc_start + 5000] if enc_start > 0 else ""
+                vsti_m = re.search(r'visitSubTypeId>(\d+)<', enc_chunk)
+                if vsti_m:
+                    base["visitSubTypeId"] = vsti_m.group(1)
+                newpt_m = re.search(r'newPt>(\w*)<', enc_chunk)
+                if newpt_m:
+                    base["newPt"] = newpt_m.group(1) == "1"
+        except Exception:
+            pass
+        # Resolve sub-type code/name
+        vtname = base.get("visitType", "")
+        vsti = base.get("visitSubTypeId", "")
+        if vtname and vsti and vtname in subtype_index:
+            sub = subtype_index[vtname].get(vsti)
+            if sub:
+                base["visitSubTypeCode"] = sub["code"]
+                base["visitSubTypeName"] = sub["name"]
+    # Concurrency check — status, resourceId, notes
+    try:
+        conc_url = _make_url(
+            f"/mobiledoc/emr/concurrency/checkApptFieldLevelConcurrency/{enc_id}",
+            session)
+        cr = client.get(conc_url, headers=hdrs)
+        if cr.status_code == 200:
+            cd = cr.json()
+            base["status"] = cd.get("visitStatusCode", base.get("status", ""))
+            base["resourceId"] = str(cd.get("resourceId", base.get("resourceId", "")))
+            base["billingNotes"] = cd.get("billingNotes", "")
+            base["generalNotes"] = cd.get("generalNotes", "")
+    except Exception:
+        pass
+    # CoPay
+    try:
+        copay_url = _make_url(
+            f"/mobiledoc/jsp/catalog/xml/edi/getApptCoPay.jsp"
+            f"?patientId={patient_id}&encounterId={enc_id}", session)
+        cpr = client.get(copay_url, headers=hdrs)
+        if cpr.status_code == 200:
+            cp_parsed = _parse_soap_xml(cpr.text)
+            cp_ret = cp_parsed.get("return", {})
+            enc_data = cp_ret.get("Encounter", {}) if isinstance(cp_ret, dict) else {}
+            base["copay"] = enc_data.get("Copays", "0.00") if isinstance(enc_data, dict) else "0.00"
+    except Exception:
+        pass
+    return base
+
+
+def _build_subtype_index(client, session):
+    """Fetch visit sub-type mapping once for enrichment."""
+    hdrs = _get_headers(session)
+    subtype_index = {}
+    try:
+        st_url = _make_url(
+            "/mobiledoc/jsp/webemr/uadmin/visitsubtype/subTypeOperationController.jsp"
+            "?action=getVisitSubTypesMapping&rowPerpage=0&currentPage=1", session)
+        st_r = client.get(st_url, headers=hdrs)
+        if st_r.status_code == 200:
+            st_data = st_r.json() if st_r.text.strip() else {}
+            for vt in st_data.get("subTypeMapping", []):
+                vtname = vt.get("vtname", "")
+                subtype_index[vtname] = {
+                    str(st.get("id", "")): {
+                        "code": st.get("code", ""),
+                        "name": st.get("name", ""),
+                    }
+                    for st in vt.get("subTypes", [])
+                }
+    except Exception:
+        pass
+    return subtype_index
+
+
+def get_encounters(client: requests.Session, session: dict,
+                   patient_id: str, from_date: str = "",
+                   to_date: str = "", facility_id: str = "0",
+                   provider_id: str = "0", enc_type: str = "",
+                   max_count: int = 50, offset: int = 0,
+                   enrich: bool = True) -> dict:
+    """List all encounters for a patient (office visits + telephone encounters).
+
+    enc_type filter: "" = all, "1" = office visits only, "2" = telephone only
+    enrich: if True, fetch visit sub-type, concurrency status, copay per encounter
+    """
+    raw = _fetch_pt_encounters(client, session, patient_id,
+                                from_date, to_date, facility_id,
+                                provider_id, max_count, offset)
+    hdrs = _get_headers(session)
+    subtype_index = _build_subtype_index(client, session) if enrich else {}
+
+    encounters = []
+    for enc in raw:
+        cleaned = _clean_encounter(enc)
+        if enc_type and cleaned["encType"] != enc_type:
+            continue
+        if enrich:
+            cleaned = _enrich_encounter(client, session, patient_id,
+                                        cleaned, hdrs, subtype_index)
+        encounters.append(cleaned)
+    return {
+        "status_code": 200,
+        "body": {
+            "encounters": encounters,
+            "total_count": len(encounters),
+            "offset": offset,
+        },
+    }
+
+
+def get_appointments_v2(client: requests.Session, session: dict,
+                        patient_id: str, from_date: str = "",
+                        to_date: str = "", facility_id: str = "0",
+                        provider_id: str = "0",
+                        max_count: int = 50, offset: int = 0) -> dict:
+    """List appointments only (office visits with officeVisitType=1).
+
+    Replaces the old get_appointments which only showed recent last/next from Patient Hub.
+    This version uses the encounters endpoint with full filtering, pagination, and enrichment.
+    """
+    raw = _fetch_pt_encounters(client, session, patient_id,
+                                from_date, to_date, facility_id,
+                                provider_id, max_count, offset)
+    hdrs = _get_headers(session)
+    subtype_index = _build_subtype_index(client, session)
+
+    appointments = []
+    for enc in raw:
+        if enc.get("encType") != "1" or enc.get("officeVisitType", "") != "1":
+            continue
+        cleaned = _clean_encounter(enc)
+        cleaned = _enrich_encounter(client, session, patient_id,
+                                    cleaned, hdrs, subtype_index)
+        appointments.append(cleaned)
+    return {
+        "status_code": 200,
+        "body": {
+            "appointments": appointments,
+            "total_count": len(appointments),
+            "offset": offset,
+        },
+    }
+
 
 def get_appointments(client: requests.Session, session: dict,
                      patient_id: str) -> dict:
