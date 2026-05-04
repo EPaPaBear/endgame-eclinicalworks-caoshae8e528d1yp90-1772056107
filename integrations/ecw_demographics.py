@@ -75,6 +75,8 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
       delete-referral       - Delete a referral by ID
       get-encounters         - List all encounters (office visits + telephone)
       get-appointments       - List appointments only (office visits, filtered from encounters)
+      collect-copay          - Collect co-pay payment for an appointment (Cash or Card)
+      collect-patient-balance - Collect balance/SFDS nominal fee payment (Cash or Card)
       update-appointment    - Update appointment fields and/or add payment
       list-document-folders - List available document folders
       upload-document       - Upload document to any folder
@@ -390,6 +392,30 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                         "body": {"error": "changes dict is required"}}
             return update_appointment(client, session, patient_id, enc_id, changes)
 
+        elif action == "collect-copay":
+            enc_id = input_data.get("encounter_id", "")
+            if not enc_id:
+                return {"status_code": 400,
+                        "body": {"error": "encounter_id is required"}}
+            payment_method = input_data.get("payment_method", "Cash")
+            memo = input_data.get("memo", "co-pay for visit")
+            return collect_copay(client, session, patient_id, enc_id,
+                                payment_method, memo, input_data)
+
+        elif action == "collect-patient-balance":
+            enc_id = input_data.get("encounter_id", "")
+            if not enc_id:
+                return {"status_code": 400,
+                        "body": {"error": "encounter_id is required"}}
+            amount = input_data.get("amount", "")
+            if not amount:
+                return {"status_code": 400,
+                        "body": {"error": "amount is required"}}
+            payment_method = input_data.get("payment_method", "Cash")
+            memo = input_data.get("memo", "payment for outstanding balance")
+            return collect_patient_balance(client, session, patient_id, enc_id,
+                                          amount, payment_method, memo, input_data)
+
         elif action == "create-guarantor":
             guarantor_data = input_data.get("guarantor", {})
             if not guarantor_data:
@@ -459,6 +485,7 @@ def run(auth_headers: dict, input_data: dict = None) -> dict:
                                  "create-telephone-encounter",
                                  "get-encounters",
                                  "get-appointments", "update-appointment",
+                                 "collect-copay", "collect-patient-balance",
                                  "create-guarantor", "update-guarantor",
                                  "delete-guarantor", "search-patient",
                                  "search-guarantor",
@@ -2240,13 +2267,99 @@ def _clean_encounter(enc: dict) -> dict:
         "billingNotes": "",
         "generalNotes": "",
         "copay": "0.00",
+        # Financial details (populated for appointments)
+        "totalCharges": "0.00",
+        "allowedFee": "0.00",
+        "copayAmount": "0.00",
+        "patientPortion": "0.00",
+        "patientTotal": "0.00",
+        "visitBalance": "0.00",
+        "guarantorBalance": "0.00",
+        "accountBalance": "0.00",
+        "insuranceBalance": "0.00",
+        "patientBalance": "0.00",
+        "unPostedPayment": "0.00",
+        "credits": "0.00",
     }
+
+
+def _fetch_appointment_financials(client: requests.Session, session: dict,
+                                   patient_id: str, enc_id: str,
+                                   facility_id: str = "3") -> dict:
+    """Fetch Visit Financial Details + Patient Account Summary from ApptsRightPane.jsp."""
+    financials = {
+        "totalCharges": "0.00", "allowedFee": "0.00", "copayAmount": "0.00",
+        "patientPortion": "0.00", "patientTotal": "0.00", "visitBalance": "0.00",
+        "guarantorBalance": "0.00", "accountBalance": "0.00",
+        "insuranceBalance": "0.00", "patientBalance": "0.00",
+        "unPostedPayment": "0.00", "credits": "0.00",
+    }
+    try:
+        url = _make_url(
+            f"/mobiledoc/jsp/webemr/scheduling/ApptsRightPane.jsp"
+            f"?EncId={enc_id}&PtId={patient_id}&facilityId={facility_id}"
+            f"&showPmtPlanOpt=true&RxCheck=Nothing", session)
+        r = client.get(url, headers=_get_headers(session))
+        if r.status_code != 200:
+            return financials
+        html = r.text
+
+        def _dollar(label):
+            idx = html.find(label)
+            if idx < 0:
+                return None
+            chunk = html[idx:idx+300]
+            m = re.search(r'title="\$?(-?[\d,]+\.?\d*)"', chunk)
+            return m.group(1) if m else None
+
+        def _by_id(eid):
+            idx = html.find(f'id="{eid}"')
+            if idx < 0:
+                return None
+            chunk = html[idx:idx+200]
+            m = re.search(r'-?\$?([\d,]+\.?\d*)', chunk)
+            if m:
+                # Return clean number, preserve negative sign
+                full = m.group(0).replace("$", "").replace(",", "")
+                return full
+            return None
+
+        # Visit Financial Details
+        financials["totalCharges"] = _dollar("Total Charges") or "0.00"
+        financials["allowedFee"] = _dollar("Allowed Fee") or "0.00"
+        financials["copayAmount"] = _dollar("Co-Pay") or "0.00"
+        financials["patientPortion"] = _dollar("Patient Portion") or "0.00"
+        financials["patientTotal"] = _dollar("Patient Total") or "0.00"
+        # Balance row uses nobordB class — search specifically
+        bal_idx = html.find("nobordB")
+        if bal_idx >= 0:
+            bal_chunk = html[bal_idx:bal_idx+300]
+            bm = re.search(r'title="\$?(-?[\d,]+\.?\d*)"', bal_chunk)
+            if bm:
+                financials["visitBalance"] = bm.group(1)
+
+        # Patient Account Summary
+        id_map = {
+            "patAccSummaryGrBalanceId": "guarantorBalance",
+            "patAccSummaryAccountBalanceId": "accountBalance",
+            "patAccSummaryInsBalanceId": "insuranceBalance",
+            "patAccSummaryPatientBalanceId": "patientBalance",
+            "patAccSummaryUnPostPaymentId": "unPostedPayment",
+            "patAccSummaryCreditId": "credits",
+        }
+        for eid, key in id_map.items():
+            val = _by_id(eid)
+            if val:
+                financials[key] = val.lstrip("$")
+    except Exception:
+        pass
+    return financials
 
 
 def _enrich_encounter(client: requests.Session, session: dict,
                       patient_id: str, base: dict,
                       hdrs: dict, subtype_index: dict) -> dict:
-    """Enrich a cleaned encounter with concurrency, visit sub-type, and copay."""
+    """Enrich a cleaned encounter with concurrency, visit sub-type, copay, and financials."""
     enc_id = base.get("encounterId", "")
     if not enc_id:
         return base
@@ -2303,6 +2416,12 @@ def _enrich_encounter(client: requests.Session, session: dict,
             base["copay"] = enc_data.get("Copays", "0.00") if isinstance(enc_data, dict) else "0.00"
     except Exception:
         pass
+    # Visit Financial Details + Patient Account Summary
+    if base.get("isAppointment"):
+        fac_id = base.get("facilityId", "3")
+        fin = _fetch_appointment_financials(client, session, patient_id,
+                                            enc_id, fac_id)
+        base.update(fin)
     return base
 
 
@@ -2726,6 +2845,215 @@ def update_appointment(client: requests.Session, session: dict,
                 result["body"]["payment_detail"] = det_ret.get("status", "success") if isinstance(det_ret, dict) else det_text[:200]
 
     return result
+
+
+# ── Payment Collection ─────────────────────────────────────────────────────────
+
+def _validate_appointment(client: requests.Session, session: dict,
+                          patient_id: str, enc_id: str) -> dict | None:
+    """Validate that the encounter is an appointment. Returns encounter data or error dict."""
+    raw = _fetch_pt_encounters(client, session, patient_id, max_count=100)
+    for enc in raw:
+        if enc.get("encounterID") == str(enc_id):
+            if enc.get("encType") != "1" or enc.get("officeVisitType", "") != "1":
+                return {"error": f"Encounter {enc_id} is not an appointment "
+                        f"(encType={enc.get('encType')}, "
+                        f"officeVisitType={enc.get('officeVisitType')}). "
+                        "Payment collection is only supported for appointments."}
+            return {"enc": enc}
+    return {"error": f"Encounter {enc_id} not found for patient {patient_id}"}
+
+
+def _post_cash_payment(client: requests.Session, session: dict,
+                       patient_id: str, enc_id: str, amount: str,
+                       memo: str, facility_id: str = "0") -> dict:
+    """Post a cash payment via setInsPayment + setPaymentDetails."""
+    today = time.strftime("%Y-%m-%d")
+    uid = session.get("tr_user_id", session.get("session_did", ""))
+
+    # Resolve facility if not provided
+    if facility_id == "0":
+        try:
+            conc_url = _make_url(
+                f"/mobiledoc/emr/concurrency/checkApptFieldLevelConcurrency/{enc_id}",
+                session)
+            cr = client.get(conc_url, headers=_get_headers(session))
+            if cr.status_code == 200:
+                cd = cr.json()
+                fid = cd.get("facilityId", cd.get("pos", "0"))
+                if fid and str(fid) != "0":
+                    facility_id = str(fid)
+        except Exception:
+            pass
+    # Fallback: get from encounter data
+    if facility_id == "0":
+        try:
+            vr = client.get(
+                _make_url(f"/mobiledoc/jsp/catalog/xml/getValuesForEnctrId.jsp"
+                          f"?encounterId={enc_id}", session),
+                headers=_get_headers(session))
+            vp = _parse_soap_xml(vr.text)
+            ret = vp.get("return", vp) if isinstance(vp, dict) else vp
+            if isinstance(ret, dict):
+                facility_id = str(ret.get("facilityId", ret.get("FacilityId", "3")))
+        except Exception:
+            facility_id = "3"
+
+    # Step 1: setInsPayment
+    pmt_xml = (
+        f'<PaymentData xsi:type="xsd:string">'
+        f'<paymentId xsi:type="xsd:string">0</paymentId>'
+        f'<payerId xsi:type="xsd:string">{patient_id}</payerId>'
+        f'<payerType xsi:type="xsd:string">2</payerType>'
+        f'<date xsi:type="xsd:string">{today}</date>'
+        f'<depositDate xsi:type="xsd:string"></depositDate>'
+        f'<amount xsi:type="xsd:double">{amount}</amount>'
+        f'<type xsi:type="xsd:string">Cash</type>'
+        f'<checkNo  xsi:type="xsd:string"></checkNo >'
+        f'<checkDate xsi:type="xsd:string">0000-00-00</checkDate>'
+        f'<memo xsi:type="xsd:string">{_escape_xml(memo)}</memo>'
+        f'<providerId xsi:type="xsd:string">0</providerId>'
+        f'<facilityId xsi:type="xsd:string">{facility_id}</facilityId>'
+        f'<PracticeId xsi:type="xsd:string">0</PracticeId>'
+        f'<userId xsi:type="xsd:string">{uid}</userId>'
+        f'<PaymentCode  xsi:type="xsd:string"></PaymentCode >'
+        f'<ePaymentIdVal xsi:type="xsd:string"></ePaymentIdVal>'
+        f'<creditType xsi:type="xsd:int">0</creditType>'
+        f'<BatchId xsi:type="xsd:int">0</BatchId>'
+        f'<PostedById xsi:type="xsd:int">{uid}</PostedById>'
+        f'<createdFromAppt xsi:type="xsd:int">1</createdFromAppt>'
+        f'</PaymentData>')
+    r = _post(client, session,
+              "/mobiledoc/jsp/catalog/xml/setInsPayment.jsp",
+              {"FormData": _soap_envelope(pmt_xml)})
+    r.raise_for_status()
+    pmt_parsed = _parse_soap_xml(r.text)
+    pmt_ret = pmt_parsed.get("return", pmt_parsed)
+    if not isinstance(pmt_ret, dict) or pmt_ret.get("status") != "success":
+        return {"status_code": 400, "body": {"error": "Payment creation failed",
+                "details": str(pmt_ret)[:200]}}
+    pmt_id = pmt_ret.get("paymentId", "")
+
+    # Step 2: setPaymentDetails — link to encounter
+    det_xml = (
+        f'<UpdatedPmtDetails xsi:type="xsd:string">'
+        f'<PmtDetail xsi:type="xsd:string">'
+        f'<PmtDetailId  xsi:type="xsd:int">0</PmtDetailId >'
+        f'<invoiceId xsi:type="xsd:int">0</invoiceId>'
+        f'<encounterId  xsi:type="xsd:int">{enc_id}</encounterId >'
+        f'<adjustment xsi:type="xsd:string">0.00</adjustment>'
+        f'<allowed xsi:type="xsd:string">0.00</allowed>'
+        f'<deduct xsi:type="xsd:string">0.00</deduct>'
+        f'<coins xsi:type="xsd:string">0.00</coins>'
+        f'<copay xsi:type="xsd:string">0.00</copay>'
+        f'<paid  xsi:type="xsd:string">{amount}</paid >'
+        f'<withheld xsi:type="xsd:string">0.00</withheld>'
+        f'<MsgCode xsi:type="xsd:string"></MsgCode>'
+        f'</PmtDetail>'
+        f'</UpdatedPmtDetails>'
+        f'<DeletedPmtDetails xsi:type="xsd:string" />')
+    r2 = _post(client, session,
+               f"/mobiledoc/jsp/catalog/xml/setPaymentDetails.jsp?paymentId={pmt_id}",
+               {"FormData": _soap_envelope(det_xml)})
+    det_text = r2.text.strip()
+    det_status = "success"
+    if det_text and det_text != "null":
+        det_parsed = _parse_soap_xml(det_text)
+        det_ret = det_parsed.get("return", det_parsed) if isinstance(det_parsed, dict) else det_parsed
+        det_status = det_ret.get("status", "success") if isinstance(det_ret, dict) else det_text[:100]
+
+    return {
+        "status_code": 200,
+        "body": {
+            "status": "success",
+            "paymentId": pmt_id,
+            "amount": amount,
+            "method": "Cash",
+            "memo": memo,
+            "encounterId": enc_id,
+            "payment_detail": det_status,
+        },
+    }
+
+
+def collect_copay(client: requests.Session, session: dict,
+                  patient_id: str, enc_id: str,
+                  payment_method: str, memo: str,
+                  input_data: dict) -> dict:
+    """Collect co-pay payment for an appointment encounter.
+
+    For Cash: posts payment directly.
+    For Card: (not yet implemented) processes via ePayment gateway.
+    """
+    # Validate this is an appointment
+    check = _validate_appointment(client, session, patient_id, enc_id)
+    if "error" in check:
+        return {"status_code": 400, "body": check}
+
+    # Get copay amount
+    try:
+        copay_url = _make_url(
+            f"/mobiledoc/jsp/catalog/xml/edi/getApptCoPay.jsp"
+            f"?patientId={patient_id}&encounterId={enc_id}", session)
+        cpr = client.get(copay_url, headers=_get_headers(session))
+        cp_parsed = _parse_soap_xml(cpr.text)
+        cp_ret = cp_parsed.get("return", {})
+        enc_data = cp_ret.get("Encounter", {}) if isinstance(cp_ret, dict) else {}
+        copay_amount = enc_data.get("Copays", "0.00") if isinstance(enc_data, dict) else "0.00"
+    except Exception:
+        return {"status_code": 400,
+                "body": {"error": "Could not retrieve co-pay amount for this encounter"}}
+
+    if float(copay_amount) <= 0:
+        return {"status_code": 400,
+                "body": {"error": "No co-pay due for this encounter",
+                         "copay": copay_amount}}
+
+    # Override amount if caller specified one
+    amount = input_data.get("amount", copay_amount)
+
+    if payment_method.lower() == "cash":
+        result = _post_cash_payment(client, session, patient_id, enc_id,
+                                    str(amount), memo)
+        if result["status_code"] == 200:
+            result["body"]["copay_due"] = copay_amount
+        return result
+    elif payment_method.lower() in ("card", "credit card"):
+        return {"status_code": 501,
+                "body": {"error": "Card payment not yet implemented",
+                         "copay_due": copay_amount}}
+    else:
+        return {"status_code": 400,
+                "body": {"error": f"Unsupported payment method: {payment_method}"}}
+
+
+def collect_patient_balance(client: requests.Session, session: dict,
+                            patient_id: str, enc_id: str,
+                            amount: str, payment_method: str, memo: str,
+                            input_data: dict) -> dict:
+    """Collect balance payment or SFDS nominal fee for an appointment encounter.
+
+    Used for: outstanding balance, SFDS nominal fee, visit partial payment.
+    Amount must be specified by the caller (unlike copay which is auto-retrieved).
+    """
+    # Validate this is an appointment
+    check = _validate_appointment(client, session, patient_id, enc_id)
+    if "error" in check:
+        return {"status_code": 400, "body": check}
+
+    if float(amount) <= 0:
+        return {"status_code": 400,
+                "body": {"error": "Amount must be greater than 0"}}
+
+    if payment_method.lower() == "cash":
+        return _post_cash_payment(client, session, patient_id, enc_id,
+                                  str(amount), memo)
+    elif payment_method.lower() in ("card", "credit card"):
+        return {"status_code": 501,
+                "body": {"error": "Card payment not yet implemented"}}
+    else:
+        return {"status_code": 400,
+                "body": {"error": f"Unsupported payment method: {payment_method}"}}
 
 
 # ── Diagnosis & Procedure Search ───────────────────────────────────────────────
