@@ -13,8 +13,10 @@ Converted from action_handler.py for Lambda execution:
   - session_did from auth_headers["X-Session-DID"] or fallback 297477
 """
 
+import base64
 import hashlib
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -2976,6 +2978,8 @@ def _post_cash_payment(client: requests.Session, session: dict,
     }
 
 
+
+
 def collect_copay(client: requests.Session, session: dict,
                   patient_id: str, enc_id: str,
                   payment_method: str, memo: str,
@@ -3020,8 +3024,11 @@ def collect_copay(client: requests.Session, session: dict,
         return result
     elif payment_method.lower() in ("card", "credit card"):
         return {"status_code": 501,
-                "body": {"error": "Card payment not yet implemented",
+                "body": {"error": "Card payment not supported via API. The eCW ePayment gateway requires browser-based processing. Use Cash payment or process cards through the eCW UI.",
                          "copay_due": copay_amount}}
+        if result["status_code"] == 200:
+            result["body"]["copay_due"] = copay_amount
+        return result
     else:
         return {"status_code": 400,
                 "body": {"error": f"Unsupported payment method: {payment_method}"}}
@@ -3050,7 +3057,7 @@ def collect_patient_balance(client: requests.Session, session: dict,
                                   str(amount), memo)
     elif payment_method.lower() in ("card", "credit card"):
         return {"status_code": 501,
-                "body": {"error": "Card payment not yet implemented"}}
+                "body": {"error": "Card payment not supported via API. The eCW ePayment gateway requires browser-based processing. Use Cash payment or process cards through the eCW UI."}}
     else:
         return {"status_code": 400,
                 "body": {"error": f"Unsupported payment method: {payment_method}"}}
