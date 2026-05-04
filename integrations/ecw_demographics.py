@@ -3065,14 +3065,56 @@ def collect_patient_balance(client: requests.Session, session: dict,
 
 # ── Diagnosis & Procedure Search ───────────────────────────────────────────────
 
+def _resolve_icd10_to_itemid(client: requests.Session, session: dict,
+                              icd10_code: str, long_desc: str = "",
+                              short_desc: str = "") -> str:
+    """Resolve an ICD-10 code to its persistent ECW dgId/itemId.
+
+    Browser equivalent: POST `/mobiledoc/jsp/catalog/xml/edi/icd9icd10gems/getItemIdforICDCode.jsp`
+    with {ICD10Code, ICD10LongDesc, ICD10ShortDesc, userFullName}.
+    Returns the integer ICD10ItemId as a string, or "" if resolution fails.
+
+    Without this resolution step, the IMO smart-search response gives
+    placeholder identifiers that DO NOT correspond to the dgId ECW persists
+    on a referral — sending them causes ECW to attach an unrelated
+    diagnosis (e.g. asking for I10 saves 721.3).
+    """
+    uname = session.get("user_name", "WEDGE,AI")
+    try:
+        r = _post(client, session,
+                  "/mobiledoc/jsp/catalog/xml/edi/icd9icd10gems/getItemIdforICDCode.jsp",
+                  {"ICD10Code": icd10_code,
+                   "ICD10LongDesc": long_desc or icd10_code,
+                   "ICD10ShortDesc": short_desc or long_desc or icd10_code,
+                   "userFullName": uname})
+        r.raise_for_status()
+        parsed = _parse_soap_xml(r.text)
+        ret = parsed.get("return", parsed) if isinstance(parsed, dict) else parsed
+        if isinstance(ret, dict) and ret.get("status", "").lower() == "success":
+            iid = str(ret.get("ICD10ItemId", "")).strip()
+            if iid and iid != "0":
+                return iid
+    except Exception:
+        pass
+    return ""
+
+
 def search_diagnosis(client: requests.Session, session: dict,
                      search: str, search_by: str = "code",
-                     max_count: int = 10) -> list:
+                     max_count: int = 10, resolve: bool = True) -> list:
     """Search ICD-10 diagnosis codes via IMO SmartICD engine.
 
-    search_by: "code" (ICD-10 code like "I10") or "name" (description like "hypertension")
-    Returns list of {dgId, code, icd10, name, snomed_code, snomed_desc}.
-    The dgId can be passed directly to create-referral's diagnosis field.
+    search_by: "code" (ICD-10 code like "I10") or "name" (description)
+    resolve: if True (default), each result's `dgId` is the real ECW
+             item id (via getItemIdforICDCode.jsp) so it can be passed
+             directly to create-referral. Set False to skip the per-row
+             resolver call and return faster (dgId will be "" then).
+
+    Returns list of {dgId, icd10, name, icd9, snomed_code, snomed_desc}:
+      - `icd10`  — the ICD-10 code (e.g. "I10")
+      - `icd9`   — the legacy ICD-9 code IMO returns alongside (e.g. "401.9")
+      - `dgId`   — the persistent ECW diagnosis row id; pass to create-referral
+      - `name`   — display description
     """
     uid = session.get("tr_user_id", session.get("session_did", ""))
     sb = "code" if search_by.lower().startswith("c") else "name"
@@ -3084,34 +3126,31 @@ def search_diagnosis(client: requests.Session, session: dict,
         session)
     r = client.post(url, headers=_get_headers(session))
     r.raise_for_status()
-    # Parse <icd> elements (non-standard XML, not <row>)
     results = []
     try:
         import xml.etree.ElementTree as _ET
         root = _ET.fromstring(r.text)
         for icd in root.iter("icd"):
-            item_id = icd.findtext("itemId", "")
-            icd_data = icd.findtext("ICDData", "")
             icd10 = icd.findtext("ICD10", "")
+            if not icd10:
+                continue
+            icd9 = icd.findtext("code", "")
             name = icd.findtext("name", "")
             snomed = icd.findtext("snowMedCode", "")
             snomed_desc = icd.findtext("snowMedDesc", "")
-            # dgId candidate from ICDData blob (parts[0])
-            dg_id = ""
-            if icd_data:
-                parts = icd_data.split("*")
-                if parts and parts[0].isdigit():
-                    dg_id = parts[0]
-            if not icd10:
-                continue
-            results.append({
-                "dgId": dg_id or item_id,
-                "code": icd.findtext("code", ""),
+            long_desc = icd.findtext("LEXDESC", "") or name
+            entry = {
+                "dgId": "",
                 "icd10": icd10,
                 "name": name,
+                "icd9": icd9,
                 "snomed_code": snomed,
                 "snomed_desc": snomed_desc,
-            })
+            }
+            if resolve:
+                entry["dgId"] = _resolve_icd10_to_itemid(
+                    client, session, icd10, long_desc, name)
+            results.append(entry)
     except Exception:
         return [{"warning": "Diagnosis search encountered an error — session may have expired"}]
     return results
@@ -3284,7 +3323,13 @@ def create_referral(client: requests.Session, session: dict,
         notes              - General notes text
         clinical_notes     - Clinical notes text
         procedures         - Comma-separated procedure IDs
-        ref_sub_type       - "Visit" (default) or "Procedure"
+        ref_sub_type       - "Visit" (default). Tenant-specific values like
+                             "Lab" or "DME" may also be accepted. Values
+                             "Procedure", "Radiology", "Service" are
+                             rejected by ECW server-side (silent 400 with
+                             empty body). For procedure-style referrals,
+                             keep ref_sub_type="Visit" and set
+                             `procedures` + `cpt_units_allowed`.
     """
     ref_type_str = data.get("referral_type", "Incoming")
     ref_type_code = "I" if ref_type_str.lower().startswith("i") else "O"
@@ -3445,39 +3490,97 @@ def create_referral(client: requests.Session, session: dict,
     clinical_notes = data.get("clinical_notes", "")
     auth_type = data.get("auth_type", "")
     auth_code = data.get("auth_code", "")
-    ref_sub_type = data.get("ref_sub_type", "Visit")
+    ref_sub_type = data.get("ref_sub_type", "Visit") or "Visit"
+    # Defensive: known deny-list values trigger a silent 400 from ECW.
+    # Coerce to "Visit" with a warning so the rest of the payload still saves.
+    _refsubtype_blocked = {"procedure", "radiology", "service"}
+    if ref_sub_type.strip().lower() in _refsubtype_blocked:
+        _warnings.append(
+            f"ref_sub_type='{ref_sub_type}' is rejected by this ECW tenant; "
+            "using 'Visit' instead. For procedure-style referrals pass "
+            "`procedures` + `cpt_units_allowed` and leave ref_sub_type as "
+            "'Visit'.")
+        ref_sub_type = "Visit"
 
-    # --- Diagnosis: accept IDs string or list of {code, name} ---
+    # --- Diagnosis: accept ID string (single or pipe/comma-delimited),
+    #     a numeric ID list, or a list of {code, name} dicts.
+    #     IMPORTANT: ECW expects pipe-delimited persistent dgIds. Bare ICD-10
+    #     codes are resolved via getItemIdforICDCode.jsp; raw IMO blob ids
+    #     (parts[0] of <ICDData>) are NOT valid dgIds and will save the
+    #     wrong diagnosis.
     diagnosis_raw = data.get("diagnosis", "")
-    diagnosis_ids = ""
+    dg_ids = []
     if isinstance(diagnosis_raw, list):
-        ids = []
         for d in diagnosis_raw:
-            if isinstance(d, dict) and d.get("id"):
-                ids.append(str(d["id"]))
-            elif isinstance(d, dict) and d.get("code"):
-                # Use IMO SmartICD search to resolve ICD code to dgId
-                try:
-                    dr = _post(client, session,
-                               "/mobiledoc/jsp/catalog/xml/IMO/DoSmartICDSearch.jsp"
-                               f"?vendorcode=IMO&searchby=code"
-                               f"&search={d['code']}&ncounter=1&maxcount=5"
-                               f"&useEnhancedPagination=true&parentId=0"
-                               f"&useicd10=1&encounterId=0&frm=asmt"
-                               f"&userId={uid}",
-                               {})
-                    dp = _parse_soap_list(dr.text, "row")
-                    if dp:
-                        ids.append(str(dp[0].get("dgId",
-                                       dp[0].get("itemId",
-                                       dp[0].get("Id", "")))))
+            if isinstance(d, dict):
+                # Prefer explicit id/dgId
+                explicit = (d.get("dgId") or d.get("id")
+                            or d.get("itemId") or d.get("Id"))
+                if explicit and str(explicit).isdigit() and int(explicit) > 0:
+                    dg_ids.append(str(explicit))
+                    continue
+                code = d.get("icd10") or d.get("code") or ""
+                if code:
+                    resolved = _resolve_icd10_to_itemid(
+                        client, session, code,
+                        d.get("name", ""), d.get("name", ""))
+                    if resolved:
+                        dg_ids.append(resolved)
                     else:
-                        _warnings.append(f"Diagnosis code '{d['code']}' not found — use search-diagnosis to find valid codes")
+                        _warnings.append(
+                            f"Diagnosis code '{code}' could not be resolved "
+                            "to an ECW dgId — use search-diagnosis to confirm "
+                            "the code is supported by this tenant")
+            elif isinstance(d, (str, int)) and str(d).strip():
+                v = str(d).strip()
+                if v.isdigit():
+                    dg_ids.append(v)
+                else:
+                    resolved = _resolve_icd10_to_itemid(client, session, v)
+                    if resolved:
+                        dg_ids.append(resolved)
+                    else:
+                        _warnings.append(
+                            f"Diagnosis '{v}' could not be resolved")
+    elif isinstance(diagnosis_raw, str) and diagnosis_raw.strip():
+        # Accept "314481" / "314481|317281" / "314481,317281" / "I10" /
+        # "I10,J45.909" — split on either delimiter, route each token.
+        for tok in diagnosis_raw.replace(",", "|").split("|"):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok.isdigit():
+                dg_ids.append(tok)
+            else:
+                # Resolve bare ICD-10 code → look up the proper long
+                # description first via search_diagnosis(resolve=False) so
+                # ECW persists the right name. Falls back to a direct
+                # resolver call if the IMO search returns nothing.
+                resolved = ""
+                try:
+                    candidates = search_diagnosis(
+                        client, session, tok, "code",
+                        max_count=1, resolve=False)
+                    if candidates and isinstance(candidates[0], dict) \
+                            and candidates[0].get("icd10"):
+                        c = candidates[0]
+                        resolved = _resolve_icd10_to_itemid(
+                            client, session, c["icd10"],
+                            c.get("name", ""), c.get("name", ""))
                 except Exception:
-                    _warnings.append(f"Could not look up diagnosis code '{d['code']}'")
-        diagnosis_ids = ",".join(ids)
-    elif isinstance(diagnosis_raw, str):
-        diagnosis_ids = diagnosis_raw
+                    pass
+                if not resolved:
+                    resolved = _resolve_icd10_to_itemid(client, session, tok)
+                if resolved:
+                    dg_ids.append(resolved)
+                else:
+                    _warnings.append(
+                        f"Diagnosis '{tok}' could not be resolved to an "
+                        "ECW dgId — use search-diagnosis to confirm "
+                        "the code is supported by this tenant")
+    elif isinstance(diagnosis_raw, int):
+        dg_ids.append(str(diagnosis_raw))
+    diagnosis_ids = "|".join(dg_ids)
 
     # --- Procedures: pipe-delimited internal IDs ---
     procedures = data.get("procedures", "")
